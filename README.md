@@ -1,2 +1,2 @@
 # CreditBank
-Efficient Secure &amp; Easy to use Bank Application for folks wanting minimal &amp; simple to use application for day to day transaction and finance management. Built using SpringBoot &amp; PostgresSQL + NextJs 
+Payment Reconciliation &amp; Settlement Workbench System that flags inconsistent entries or any irregularities from entries of financial bodies and reports them. Built using SpringBoot &amp; PostgresSQL + Nextjs
