@@ -1,0 +1,4 @@
+payment_id,settlement_id,type,amount,fees,tax,date
+pay_XYZ123,set_XYZ123,payment,1050.00,20.00,3.60,2023-10-01 10:00:00
+pay_XYZ124,set_XYZ123,payment,500.00,10.00,1.80,2023-10-01 10:05:00
+pay_XYZ125,set_XYZ123,refund,-200.00,0.00,0.00,2023-10-01 10:10:00
