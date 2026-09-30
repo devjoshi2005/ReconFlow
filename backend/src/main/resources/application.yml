@@ -41,3 +41,9 @@ logging:
     org.springframework.web: INFO
     org.hibernate.SQL: DEBUG
     com.reconflow: DEBUG
+
+jira:
+  url: ${JIRA_URL:https://mock-company.atlassian.net}
+  username: ${JIRA_USERNAME:mock.user@company.com}
+  api-token: ${JIRA_API_TOKEN:mock_token_123}
+  project-key: ${JIRA_PROJECT_KEY:RECON}

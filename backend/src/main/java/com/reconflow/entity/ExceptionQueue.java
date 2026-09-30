@@ -26,6 +26,13 @@ public class ExceptionQueue {
     @Column(name = "approved_by") private UUID approvedBy;
     @Column(name = "resolved_at") private ZonedDateTime resolvedAt;
     
+    // Jira Integration Fields
+    @Column(name = "jira_ticket_id", length = 20) private String jiraTicketId;
+    @Column(name = "jira_ticket_url", length = 500) private String jiraTicketUrl;
+    @Column(name = "jira_priority", length = 20) private String jiraPriority;
+    @Column(name = "jira_created_at") private ZonedDateTime jiraCreatedAt;
+    @Column(name = "jira_status", length = 30) private String jiraStatus;
+    
     @CreationTimestamp @Column(name = "created_at", updatable = false)
     private ZonedDateTime createdAt;
     
