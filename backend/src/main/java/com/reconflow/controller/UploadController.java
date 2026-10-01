@@ -13,7 +13,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/upload")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*") // For local next.js testing
 public class UploadController {
 
     private final UploadService uploadService;

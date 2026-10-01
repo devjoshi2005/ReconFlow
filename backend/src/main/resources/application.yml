@@ -32,6 +32,9 @@ aws:
     bucket-name: ${AWS_S3_BUCKET_NAME}
   sqs:
     queue-name: ${AWS_SQS_QUEUE_NAME}
+    dlq-name: ${AWS_SQS_DLQ_NAME}
+    queue-url: ${AWS_SQS_QUEUE_URL}
+    dlq-url: ${AWS_SQS_DLQ_URL}
 
 server:
   port: 8080
@@ -43,7 +46,7 @@ logging:
     com.reconflow: DEBUG
 
 jira:
-  url: ${JIRA_URL:https://mock-company.atlassian.net}
-  username: ${JIRA_USERNAME:mock.user@company.com}
+  url: ${JIRA_BASE_URL:https://mock-company.atlassian.net}
+  username: ${JIRA_EMAIL:mock.user@company.com}
   api-token: ${JIRA_API_TOKEN:mock_token_123}
   project-key: ${JIRA_PROJECT_KEY:RECON}

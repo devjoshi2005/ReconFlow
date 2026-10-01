@@ -28,14 +28,14 @@ public class SqsJobListenerService {
 
     private final SqsClient sqsClient;
     private final UploadedFileRepository uploadedFileRepository;
+    private final com.reconflow.repository.ReconciliationRunRepository reconciliationRunRepository;
     private final JobLauncher jobLauncher;
-    private final Job razorpayReconciliationJob;
-    private final Job phonePeReconciliationJob;
-    private final S3Client s3Client;
+    private final Job gatewayReconciliationJob;
+    private final Job bankReconciliationJob;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    @Value("${aws.sqs.queue-name:reconciliation-jobs}")
-    private String queueName;
+    @Value("${aws.sqs.queue-url}")
+    private String queueUrl;
 
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
@@ -43,8 +43,6 @@ public class SqsJobListenerService {
     @Scheduled(fixedDelay = 10000) // Poll every 10 seconds
     public void pollMainQueue() {
         try {
-            String queueUrl = sqsClient.getQueueUrl(GetQueueUrlRequest.builder().queueName(queueName).build()).queueUrl();
-            
             ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
                     .queueUrl(queueUrl)
                     .maxNumberOfMessages(5)
@@ -64,26 +62,31 @@ public class SqsJobListenerService {
                     UploadedFile uploadedFile = uploadedFileRepository.findById(fileId).orElse(null);
                     
                     if (uploadedFile != null && "QUEUED".equals(uploadedFile.getStatus())) {
-                        log.info("Starting Batch Job for File ID: {}, Gateway: {}", fileId, uploadedFile.getGateway());
+                        log.info("Starting Batch Job for File ID: {}, Source: {}", fileId, uploadedFile.getSourceType());
                         
                         // Mark as processing
                         uploadedFile.setStatus("PROCESSING");
                         uploadedFileRepository.save(uploadedFile);
 
-                        // Download from S3
-                        java.nio.file.Path tempFile = java.nio.file.Files.createTempFile("recon-", "-" + uploadedFile.getFileName());
-                        s3Client.getObject(software.amazon.awssdk.services.s3.model.GetObjectRequest.builder()
-                                .bucket(bucketName)
-                                .key(uploadedFile.getS3Key())
-                                .build(), tempFile);
-
-                        // Determine Job
-                        Job jobToRun = "PHONEPE".equalsIgnoreCase(uploadedFile.getGateway()) ? phonePeReconciliationJob : razorpayReconciliationJob;
+                        // Determine Job based on SourceType
+                        Job jobToRun = "BANK".equalsIgnoreCase(uploadedFile.getSourceType()) ? bankReconciliationJob : gatewayReconciliationJob;
+                        
+                        java.time.LocalDate today = java.time.LocalDate.now();
+                        com.reconflow.entity.ReconciliationRun run = reconciliationRunRepository.findByRunDate(today)
+                                .orElseGet(() -> {
+                                    com.reconflow.entity.ReconciliationRun newRun = com.reconflow.entity.ReconciliationRun.builder()
+                                            .id(UUID.randomUUID())
+                                            .runDate(today)
+                                            .status("RUNNING")
+                                            .startedAt(java.time.ZonedDateTime.now())
+                                            .build();
+                                    return reconciliationRunRepository.save(newRun);
+                                });
+                        String runIdStr = run.getId().toString();
                         
                         JobParameters params = new JobParametersBuilder()
-                                .addString("runId", UUID.randomUUID().toString())
+                                .addString("runId", runIdStr)
                                 .addString("uploadedFileId", uploadedFile.getId().toString())
-                                .addString("filePath", tempFile.toAbsolutePath().toString())
                                 .addLong("time", System.currentTimeMillis())
                                 .toJobParameters();
                         
@@ -94,9 +97,6 @@ public class SqsJobListenerService {
                                 .queueUrl(queueUrl)
                                 .receiptHandle(message.receiptHandle())
                                 .build());
-                                
-                        uploadedFile.setStatus("COMPLETED");
-                        uploadedFileRepository.save(uploadedFile);
                     } else {
                         log.warn("File {} not found or not in QUEUED status", fileId);
                         sqsClient.deleteMessage(DeleteMessageRequest.builder()

@@ -3,7 +3,7 @@ package com.reconflow.batch;
 import com.reconflow.dto.GatewaySettlementRecord;
 import com.reconflow.dto.ReconciliationResult;
 import com.reconflow.entity.LedgerTransaction;
-import com.reconflow.repository.LedgerTransactionRepository;
+import com.reconflow.entity.UploadedFile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,40 +14,46 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ReconciliationProcessorTest {
 
     @Mock
-    private LedgerTransactionRepository ledgerTransactionRepository;
+    private CsvInMemoryLoader csvInMemoryLoader;
 
     @InjectMocks
     private ReconciliationProcessor processor;
 
     private final String runId = UUID.randomUUID().toString();
     private final String fileId = UUID.randomUUID().toString();
+    private ConcurrentHashMap<String, GatewaySettlementRecord> gatewayRecords;
 
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(processor, "runIdStr", runId);
         ReflectionTestUtils.setField(processor, "uploadedFileIdStr", fileId);
+        gatewayRecords = new ConcurrentHashMap<>();
     }
 
     @Test
     void testProcess_PerfectMatch() {
         // Arrange
-        GatewaySettlementRecord record = GatewaySettlementRecord.builder()
+        GatewaySettlementRecord gatewayRecord = GatewaySettlementRecord.builder()
                 .gateway("RAZORPAY")
                 .gatewayTransactionId("pay_123")
                 .amount(new BigDecimal("100.00"))
                 .transactionDate(ZonedDateTime.now())
                 .build();
+        gatewayRecords.put("pay_123", gatewayRecord);
+
+        UploadedFile uploadedFile = UploadedFile.builder().id(UUID.randomUUID()).build();
+        when(csvInMemoryLoader.getGatewayRecords()).thenReturn(gatewayRecords);
+        when(csvInMemoryLoader.getCurrentFile()).thenReturn(uploadedFile);
 
         LedgerTransaction ledger = LedgerTransaction.builder()
                 .id(UUID.randomUUID())
@@ -56,11 +62,8 @@ class ReconciliationProcessorTest {
                 .status("PENDING")
                 .build();
 
-        when(ledgerTransactionRepository.findByGatewayTransactionId("pay_123"))
-                .thenReturn(Optional.of(ledger));
-
         // Act
-        ReconciliationResult result = processor.process(record);
+        ReconciliationResult result = processor.process(ledger);
 
         // Assert
         assertThat(result).isNotNull();
@@ -69,42 +72,47 @@ class ReconciliationProcessorTest {
         assertThat(result.getGatewaySettlement().getGatewayTransactionId()).isEqualTo("pay_123");
         
         assertThat(result.getMatchedLedgerTransaction()).isNotNull();
-        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("RECONCILED");
+        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("MATCHED");
+        assertThat(gatewayRecords).isEmpty(); // It should be removed from the map
     }
 
     @Test
-    void testProcess_MissingInLedger() {
+    void testProcess_MissingInGateway() {
         // Arrange
-        GatewaySettlementRecord record = GatewaySettlementRecord.builder()
-                .gateway("RAZORPAY")
+        when(csvInMemoryLoader.getGatewayRecords()).thenReturn(gatewayRecords);
+
+        LedgerTransaction ledger = LedgerTransaction.builder()
+                .id(UUID.randomUUID())
                 .gatewayTransactionId("pay_404")
                 .amount(new BigDecimal("100.00"))
-                .transactionDate(ZonedDateTime.now())
+                .status("PENDING")
                 .build();
 
-        when(ledgerTransactionRepository.findByGatewayTransactionId("pay_404"))
-                .thenReturn(Optional.empty());
-
         // Act
-        ReconciliationResult result = processor.process(record);
+        ReconciliationResult result = processor.process(ledger);
 
         // Assert
         assertThat(result).isNotNull();
         assertThat(result.hasException()).isTrue();
-        assertThat(result.getException().getExceptionType()).isEqualTo("MISSING_IN_LEDGER");
+        assertThat(result.getException().getExceptionType()).isEqualTo("MISSING_IN_GATEWAY");
         assertThat(result.getException().getDiscrepancyAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
-        assertThat(result.getMatchedLedgerTransaction()).isNull(); // No ledger matched
+        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("EXCEPTION"); 
     }
 
     @Test
     void testProcess_AmountMismatch() {
         // Arrange
-        GatewaySettlementRecord record = GatewaySettlementRecord.builder()
+        GatewaySettlementRecord gatewayRecord = GatewaySettlementRecord.builder()
                 .gateway("RAZORPAY")
                 .gatewayTransactionId("pay_500")
                 .amount(new BigDecimal("90.00")) // Gateway says 90
                 .transactionDate(ZonedDateTime.now())
                 .build();
+        gatewayRecords.put("pay_500", gatewayRecord);
+
+        UploadedFile uploadedFile = UploadedFile.builder().id(UUID.randomUUID()).build();
+        when(csvInMemoryLoader.getGatewayRecords()).thenReturn(gatewayRecords);
+        when(csvInMemoryLoader.getCurrentFile()).thenReturn(uploadedFile);
 
         LedgerTransaction ledger = LedgerTransaction.builder()
                 .id(UUID.randomUUID())
@@ -114,11 +122,8 @@ class ReconciliationProcessorTest {
                 .status("PENDING")
                 .build();
 
-        when(ledgerTransactionRepository.findByGatewayTransactionId("pay_500"))
-                .thenReturn(Optional.of(ledger));
-
         // Act
-        ReconciliationResult result = processor.process(record);
+        ReconciliationResult result = processor.process(ledger);
 
         // Assert
         assertThat(result).isNotNull();

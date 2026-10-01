@@ -2,21 +2,25 @@ package com.reconflow.service;
 
 import com.reconflow.entity.UploadedFile;
 import com.reconflow.repository.UploadedFileRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlResponse;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,6 +39,12 @@ class UploadServiceTest {
     @Mock
     private UploadedFileRepository uploadedFileRepository;
 
+    @Mock
+    private StringRedisTemplate redisTemplate;
+
+    @Mock
+    private ValueOperations<String, String> valueOperations;
+
     @InjectMocks
     private UploadService uploadService;
 
@@ -42,6 +52,18 @@ class UploadServiceTest {
     void setUp() {
         ReflectionTestUtils.setField(uploadService, "bucketName", "test-bucket");
         ReflectionTestUtils.setField(uploadService, "queueName", "test-queue");
+        ReflectionTestUtils.setField(uploadService, "queueUrl", "http://sqs-url");
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.initSynchronization();
+        }
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clear();
+        }
     }
 
     @Test
@@ -49,6 +71,9 @@ class UploadServiceTest {
         // Arrange
         MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", "test data".getBytes());
         
+        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
         when(uploadedFileRepository.existsByFileChecksum(anyString())).thenReturn(false);
         
         UploadedFile savedFile = UploadedFile.builder()
@@ -57,11 +82,11 @@ class UploadServiceTest {
                 .build();
         when(uploadedFileRepository.save(any(UploadedFile.class))).thenReturn(savedFile);
         
-        when(sqsClient.getQueueUrl(any(GetQueueUrlRequest.class)))
-                .thenReturn(GetQueueUrlResponse.builder().queueUrl("http://sqs-url").build());
-
         // Act
         UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null);
+
+        // Run afterCommit hooks manually for testing
+        TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
 
         // Assert
         assertNotNull(result);
@@ -75,6 +100,9 @@ class UploadServiceTest {
     void testProcessUpload_DuplicateChecksum() throws Exception {
         // Arrange
         MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", "test data".getBytes());
+        when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
         when(uploadedFileRepository.existsByFileChecksum(anyString())).thenReturn(true);
 
         // Act & Assert

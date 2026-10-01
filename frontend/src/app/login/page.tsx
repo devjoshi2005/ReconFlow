@@ -30,7 +30,7 @@ export default function LoginPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="role" className="text-zinc-200">Role</Label>
-            <Select onValueChange={setRole}>
+            <Select onValueChange={(val: any) => setRole(val)}>
               <SelectTrigger id="role" className="bg-zinc-950 border-zinc-800 text-zinc-100">
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>

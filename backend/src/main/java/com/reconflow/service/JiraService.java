@@ -2,6 +2,7 @@ package com.reconflow.service;
 
 import com.reconflow.entity.ExceptionQueue;
 import com.reconflow.repository.ExceptionQueueRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
+@Slf4j
 public class JiraService {
 
     private final ExceptionQueueRepository exceptionRepo;
@@ -39,16 +41,46 @@ public class JiraService {
         ExceptionQueue ex = exceptionRepo.findById(exceptionId)
                 .orElseThrow(() -> new RuntimeException("Exception not found"));
 
-        // Mocking the Jira API Call for now based on user's instruction to test later
-        // In a real scenario, we would use restTemplate.exchange(...) with Basic Auth
-        String mockTicketId = projectKey + "-" + (int)(Math.random() * 10000);
-        String mockTicketUrl = jiraUrl + "/browse/" + mockTicketId;
-        
-        ex.setJiraTicketId(mockTicketId);
-        ex.setJiraTicketUrl(mockTicketUrl);
-        ex.setJiraPriority(ex.getDiscrepancyAmount() != null && ex.getDiscrepancyAmount().abs().doubleValue() > 1000 ? "High" : "Medium");
-        ex.setJiraCreatedAt(ZonedDateTime.now());
-        ex.setJiraStatus("To Do");
+        try {
+            String auth = jiraUsername + ":" + jiraApiToken;
+            String encodedAuth = java.util.Base64.getEncoder().encodeToString(auth.getBytes());
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Authorization", "Basic " + encodedAuth);
+
+            // Constructing a basic Jira issue payload
+            Map<String, Object> project = new HashMap<>();
+            project.put("key", projectKey);
+
+            Map<String, Object> issuetype = new HashMap<>();
+            issuetype.put("name", "Task"); // Assuming standard issue type
+
+            Map<String, Object> fields = new HashMap<>();
+            fields.put("project", project);
+            fields.put("summary", "Reconciliation Exception: " + ex.getMatchType() + " on " + ex.getMatchId());
+            fields.put("description", "Discrepancy Amount: " + ex.getDiscrepancyAmount() + " " + ex.getCurrency());
+            fields.put("issuetype", issuetype);
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("fields", fields);
+
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
+            
+            ResponseEntity<Map> response = restTemplate.postForEntity(jiraUrl + "/rest/api/2/issue", request, Map.class);
+            
+            if (response.getStatusCode() == HttpStatus.CREATED && response.getBody() != null) {
+                String ticketKey = (String) response.getBody().get("key");
+                ex.setJiraTicketId(ticketKey);
+                ex.setJiraTicketUrl(jiraUrl + "/browse/" + ticketKey);
+                ex.setJiraPriority("Medium"); // default or parse from response
+                ex.setJiraCreatedAt(ZonedDateTime.now());
+                ex.setJiraStatus("To Do");
+            }
+        } catch (Exception e) {
+            log.error("Failed to create Jira ticket", e);
+            throw new RuntimeException("Failed to communicate with Jira API", e);
+        }
 
         return exceptionRepo.save(ex);
     }

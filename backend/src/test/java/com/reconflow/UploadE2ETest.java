@@ -45,8 +45,8 @@ public class UploadE2ETest {
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
 
-    @Value("${aws.sqs.queue-name}")
-    private String queueName;
+    @Value("${aws.sqs.queue-url}")
+    private String queueUrl;
 
     private UUID uploadedFileId;
     private String s3KeyToDelete;
@@ -62,7 +62,6 @@ public class UploadE2ETest {
                     .key(s3KeyToDelete)
                     .build());
         }
-        // In a real E2E, we might also purge the queue, but we'll leave it as we just consume it.
     }
 
     @Test
@@ -108,26 +107,17 @@ public class UploadE2ETest {
                 .build());
         assertThat(headObject.contentLength()).isEqualTo(testContent.getBytes().length);
 
-        // 5. Verify SQS (Poll queue and find our message)
-        String queueUrl = sqsClient.getQueueUrl(GetQueueUrlRequest.builder().queueName(queueName).build()).queueUrl();
-        
-        boolean foundMessage = false;
-        for (int i = 0; i < 3; i++) {
-            ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                    .queueUrl(queueUrl)
-                    .maxNumberOfMessages(10)
-                    .waitTimeSeconds(5) // Long polling
-                    .build();
-                    
-            List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
-            
-            foundMessage = messages.stream().anyMatch(msg -> msg.body().contains(fileIdStr));
-            
-            if (foundMessage) {
+        // 5. Verify the listener picked it up (status changes from QUEUED)
+        boolean processed = false;
+        for (int i = 0; i < 15; i++) {
+            UploadedFile f = uploadedFileRepository.findById(uploadedFileId).orElseThrow();
+            if ("PROCESSING".equals(f.getStatus()) || "COMPLETED".equals(f.getStatus()) || "FAILED".equals(f.getStatus())) {
+                processed = true;
                 break;
             }
+            try { Thread.sleep(2000); } catch (InterruptedException e) {}
         }
-                
-        assertThat(foundMessage).as("SQS message containing fileId should be present in the queue").isTrue();
+        
+        assertThat(processed).as("File should be picked up by the listener and status changed from QUEUED").isTrue();
     }
 }

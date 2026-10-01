@@ -12,7 +12,7 @@ import java.util.UUID;
 public class ReconciliationRun {
     @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-    @Column(name = "run_date", nullable = false, unique = true) private LocalDate runDate;
+    @Column(name = "run_date", nullable = false) private LocalDate runDate;
     @Column(nullable = false) private String status;
     @CreationTimestamp @Column(name = "started_at", updatable = false)
     private ZonedDateTime startedAt;

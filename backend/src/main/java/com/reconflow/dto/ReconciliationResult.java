@@ -12,6 +12,7 @@ public class ReconciliationResult {
     private GatewaySettlement gatewaySettlement;
     private LedgerTransaction matchedLedgerTransaction;
     private ExceptionQueue exception;
+    private com.reconflow.entity.ChainAMatch chainAMatch;
     
     public boolean hasException() {
         return exception != null;

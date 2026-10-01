@@ -102,7 +102,7 @@ public class ReconciliationE2ETest {
     void testFullReconciliationPipeline() throws InterruptedException {
         // 1. Prepare Mock CSV
         String csvContent = "gatewayTransactionId,amount,status,utr,transactionDateStr\n" +
-                testTxnId + ",500.00,SUCCESS,UTR-123,2023-10-01 10:00:00";
+                testTxnId + ",500.00,SUCCESS,UTR_123,2023-10-01 10:00:00";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -128,16 +128,17 @@ public class ReconciliationE2ETest {
         testFileId = UUID.fromString((String) response.getBody().get("fileId"));
         s3KeyToDelete = fileRepo.findById(testFileId).get().getS3Key();
 
-        // 3. Trigger SQS Listener Manually (simulating the cron job)
-        // Since there might be leftover messages in the SQS queue from previous tests, we poll multiple times
+        // 3. Wait for SQS listener and Batch Job to complete
         boolean isCompleted = false;
-        for (int i = 0; i < 10; i++) {
-            Thread.sleep(1500); // Give SQS a moment
-            sqsJobListenerService.pollMainQueue(); // This will clear out old messages and eventually hit ours
+        for (int i = 0; i < 45; i++) {
+            Thread.sleep(2000); // Wait 2s
             
             UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
             if ("COMPLETED".equals(updatedFile.getStatus())) {
                 isCompleted = true;
+                break;
+            } else if ("FAILED".equals(updatedFile.getStatus())) {
+                System.err.println("Batch Job FAILED! Check logs.");
                 break;
             }
         }
@@ -151,7 +152,7 @@ public class ReconciliationE2ETest {
 
         // 4.2 Check LedgerTransaction status
         LedgerTransaction updatedLedger = ledgerRepo.findById(testLedgerId).orElseThrow();
-        assertThat(updatedLedger.getStatus()).isEqualTo("RECONCILED");
+        assertThat(updatedLedger.getStatus()).isEqualTo("MATCHED");
 
         System.out.println("FULL PIPELINE SUCCESS: File uploaded -> S3 saved -> SQS queued -> SQS polled -> Batch Job ran -> Postgres updated!");
     }

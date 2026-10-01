@@ -2,10 +2,10 @@ package com.reconflow.batch;
 
 import com.reconflow.dto.GatewaySettlementRecord;
 import com.reconflow.dto.ReconciliationResult;
+import com.reconflow.entity.ChainAMatch;
 import com.reconflow.entity.ExceptionQueue;
 import com.reconflow.entity.GatewaySettlement;
 import com.reconflow.entity.LedgerTransaction;
-import com.reconflow.repository.LedgerTransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
@@ -14,16 +14,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.Optional;
 import java.util.UUID;
 
 @Component
 @StepScope
 @RequiredArgsConstructor
 @Slf4j
-public class ReconciliationProcessor implements ItemProcessor<GatewaySettlementRecord, ReconciliationResult> {
+public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction, ReconciliationResult> {
 
-    private final LedgerTransactionRepository ledgerTransactionRepository;
+    private final CsvInMemoryLoader csvInMemoryLoader;
 
     @Value("#{jobParameters['runId']}")
     private String runIdStr;
@@ -32,54 +31,52 @@ public class ReconciliationProcessor implements ItemProcessor<GatewaySettlementR
     private String uploadedFileIdStr;
 
     @Override
-    public ReconciliationResult process(GatewaySettlementRecord record) {
-        log.debug("Processing record: {}", record.getGatewayTransactionId());
-        
+    public ReconciliationResult process(LedgerTransaction ledger) {
         UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
-        UUID fileId = uploadedFileIdStr != null ? UUID.fromString(uploadedFileIdStr) : null;
+        
+        // O(1) Map Lookup from the in-memory CSV map
+        GatewaySettlementRecord gatewayRecord = csvInMemoryLoader.getGatewayRecords().remove(ledger.getGatewayTransactionId());
 
-        GatewaySettlement settlement = GatewaySettlement.builder()
-                .uploadedFileId(fileId)
-                .gateway(record.getGateway())
-                .gatewayTransactionId(record.getGatewayTransactionId())
-                .orderId(record.getOrderId())
-                .settlementBatchId(record.getSettlementId())
-                .grossAmount(record.getAmount())
-                .feeAmount(record.getFee() != null ? record.getFee() : BigDecimal.ZERO)
-                .taxAmount(record.getTax() != null ? record.getTax() : BigDecimal.ZERO)
-                .netAmount(record.getAmount() // Usually Gross - Fee - Tax, but let's trust the gateway's gross for simple matching
-                        .subtract(record.getFee() != null ? record.getFee() : BigDecimal.ZERO)
-                        .subtract(record.getTax() != null ? record.getTax() : BigDecimal.ZERO))
-                .settlementDate(record.getTransactionDate().toLocalDate())
-                .build();
-
-        Optional<LedgerTransaction> ledgerOpt = ledgerTransactionRepository.findByGatewayTransactionId(record.getGatewayTransactionId());
-
-        if (ledgerOpt.isEmpty()) {
-            // EXCEPTION: Missing in Ledger (We received money but have no record of the order)
+        if (gatewayRecord == null) {
+            // Found in Ledger, but not in the Gateway CSV -> MISSING_IN_GATEWAY
             ExceptionQueue exception = ExceptionQueue.builder()
                     .reconciliationRunId(runId)
-                    .matchId(settlement.getId() != null ? settlement.getId() : UUID.randomUUID()) // Match ID usually points to GatewaySettlement if Ledger is missing
-                    .matchType("GATEWAY_SETTLEMENT")
-                    .exceptionType("MISSING_IN_LEDGER")
-                    .discrepancyAmount(record.getAmount())
-                    .currency("INR")
+                    .matchId(ledger.getId())
+                    .matchType("LEDGER_TRANSACTION")
+                    .exceptionType("MISSING_IN_GATEWAY")
+                    .discrepancyAmount(ledger.getAmount())
+                    .currency(ledger.getCurrency())
                     .status("OPEN")
                     .build();
 
+            ledger.setStatus("EXCEPTION");
+
             return ReconciliationResult.builder()
-                    .gatewaySettlement(settlement)
+                    .matchedLedgerTransaction(ledger)
                     .exception(exception)
                     .build();
         }
 
-        LedgerTransaction ledger = ledgerOpt.get();
+        // We found a match in the CSV, let's map it to an Entity
+        GatewaySettlement settlement = GatewaySettlement.builder()
+                .uploadedFileId(csvInMemoryLoader.getCurrentFile().getId())
+                .gateway(gatewayRecord.getGateway())
+                .gatewayTransactionId(gatewayRecord.getGatewayTransactionId())
+                .orderId(gatewayRecord.getOrderId())
+                .settlementBatchId(gatewayRecord.getSettlementId())
+                .grossAmount(gatewayRecord.getAmount())
+                .feeAmount(gatewayRecord.getFee() != null ? gatewayRecord.getFee() : BigDecimal.ZERO)
+                .taxAmount(gatewayRecord.getTax() != null ? gatewayRecord.getTax() : BigDecimal.ZERO)
+                .netAmount(gatewayRecord.getAmount()
+                        .subtract(gatewayRecord.getFee() != null ? gatewayRecord.getFee() : BigDecimal.ZERO)
+                        .subtract(gatewayRecord.getTax() != null ? gatewayRecord.getTax() : BigDecimal.ZERO))
+                .settlementDate(gatewayRecord.getTransactionDate().toLocalDate())
+                .build();
 
-        // Check if amount matches
-        // Note: Ledger amount is usually gross amount. We compare gross vs gross.
-        if (ledger.getAmount().compareTo(record.getAmount()) != 0) {
-            // EXCEPTION: Amount Mismatch
-            BigDecimal discrepancy = ledger.getAmount().subtract(record.getAmount()).abs();
+        // Compare Amounts
+        if (ledger.getAmount().compareTo(gatewayRecord.getAmount()) != 0) {
+            // Amount Mismatch Exception
+            BigDecimal discrepancy = ledger.getAmount().subtract(gatewayRecord.getAmount()).abs();
             
             ExceptionQueue exception = ExceptionQueue.builder()
                     .reconciliationRunId(runId)
@@ -90,22 +87,30 @@ public class ReconciliationProcessor implements ItemProcessor<GatewaySettlementR
                     .currency(ledger.getCurrency())
                     .status("OPEN")
                     .build();
-                    
+
             ledger.setStatus("EXCEPTION");
 
             return ReconciliationResult.builder()
-                    .gatewaySettlement(settlement)
                     .matchedLedgerTransaction(ledger)
+                    .gatewaySettlement(settlement)
                     .exception(exception)
                     .build();
         }
 
-        // PERFECT MATCH
-        ledger.setStatus("RECONCILED");
+        // Perfect Match
+        ledger.setStatus("MATCHED");
+        
+        ChainAMatch match = ChainAMatch.builder()
+                .reconciliationRunId(runId)
+                .ledgerTransactionId(ledger.getId())
+                // .gatewaySettlementId(...) will be set by Writer after saving the settlement
+                .matchStatus("MATCHED")
+                .build();
 
         return ReconciliationResult.builder()
-                .gatewaySettlement(settlement)
                 .matchedLedgerTransaction(ledger)
+                .gatewaySettlement(settlement)
+                .chainAMatch(match)
                 .build();
     }
 }

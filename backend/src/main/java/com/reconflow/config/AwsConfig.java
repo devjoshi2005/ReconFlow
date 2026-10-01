@@ -38,4 +38,13 @@ public class AwsConfig {
                         AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
                 .build();
     }
+
+    @Bean
+    public software.amazon.awssdk.services.cloudwatch.CloudWatchClient cloudWatchClient() {
+        return software.amazon.awssdk.services.cloudwatch.CloudWatchClient.builder()
+                .region(Region.of(region))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
+                .build();
+    }
 }

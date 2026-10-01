@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,10 +20,25 @@ const mockExceptions = [
 export default function ExceptionsPage() {
   const [filterType, setFilterType] = useState<string>('ALL')
   const [search, setSearch] = useState<string>('')
+  const [exceptions, setExceptions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const filtered = mockExceptions.filter(ex => 
-    (filterType === 'ALL' || ex.type === filterType) &&
-    ex.matchId.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    fetch('http://localhost:8080/api/v1/exceptions')
+      .then(res => res.json())
+      .then(data => {
+        setExceptions(data)
+        setLoading(false)
+      })
+      .catch(e => {
+        console.error("Failed to fetch exceptions", e)
+        setLoading(false)
+      })
+  }, [])
+
+  const filtered = exceptions.filter(ex => 
+    (filterType === 'ALL' || ex.exceptionType === filterType) &&
+    ex.matchId?.toLowerCase().includes(search.toLowerCase())
   )
 
   const getStatusColor = (status: string) => {
@@ -60,7 +75,7 @@ export default function ExceptionsPage() {
               </div>
             </div>
             <div className="w-full sm:w-auto">
-              <Select value={filterType} onValueChange={setFilterType}>
+              <Select value={filterType} onValueChange={(val: any) => setFilterType(val)}>
                 <SelectTrigger className="w-[180px] bg-zinc-950 border-zinc-800 text-zinc-100">
                   <SelectValue placeholder="Exception Type" />
                 </SelectTrigger>
@@ -92,11 +107,11 @@ export default function ExceptionsPage() {
                   <TableCell>{ex.gateway}</TableCell>
                   <TableCell>
                     <span className="text-xs font-mono bg-zinc-800 px-2 py-1 rounded">
-                      {ex.type}
+                      {ex.exceptionType}
                     </span>
                   </TableCell>
                   <TableCell className="text-right text-red-400 font-medium">
-                    {ex.discrepancy < 0 ? '' : '+'}{ex.discrepancy} {ex.currency}
+                    {ex.discrepancyAmount < 0 ? '' : '+'}{ex.discrepancyAmount} {ex.currency}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={getStatusColor(ex.status)}>

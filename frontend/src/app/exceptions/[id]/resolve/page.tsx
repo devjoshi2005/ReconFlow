@@ -70,7 +70,7 @@ export default function ResolveExceptionPage({ params }: { params: { id: string 
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Resolution Action</Label>
-              <Select value={resolutionType} onValueChange={setResolutionType}>
+              <Select value={resolutionType} onValueChange={(val: any) => setResolutionType(val)}>
                 <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100">
                   <SelectValue placeholder="Select Action" />
                 </SelectTrigger>

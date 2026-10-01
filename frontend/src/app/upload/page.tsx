@@ -10,7 +10,9 @@ import { UploadCloud, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
+  const [sourceType, setSourceType] = useState<string>('GATEWAY')
   const [gateway, setGateway] = useState<string>('RAZORPAY')
+  const [bankName, setBankName] = useState<string>('HDFC')
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState<string>('')
 
@@ -28,8 +30,12 @@ export default function UploadPage() {
     setStatus('uploading')
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('gateway', gateway)
-    formData.append('sourceType', 'GATEWAY')
+    formData.append('sourceType', sourceType)
+    if (sourceType === 'GATEWAY') {
+      formData.append('gateway', gateway)
+    } else {
+      formData.append('bankName', bankName)
+    }
 
     try {
       const response = await fetch('http://localhost:8080/api/v1/upload', {
@@ -55,29 +61,61 @@ export default function UploadPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight">Upload Settlement File</h2>
-        <p className="text-zinc-400">Upload CSV files from Payment Gateways for reconciliation.</p>
+        <h2 className="text-3xl font-black tracking-tight bg-gradient-to-r from-white to-zinc-400 bg-clip-text text-transparent">Upload Settlement File</h2>
+        <p className="text-zinc-400">Upload CSV files from Payment Gateways or Banks for reconciliation.</p>
       </div>
 
-      <Card className="bg-zinc-900 border-zinc-800 text-zinc-50">
+      <Card className="bg-zinc-900/40 backdrop-blur-sm border-zinc-800/50 text-zinc-50">
         <CardHeader>
           <CardTitle>File Details</CardTitle>
           <CardDescription className="text-zinc-400">
-            Ensure the CSV matches the standard format for the selected gateway.
+            Ensure the CSV matches the standard format for the selected source.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>Gateway Source</Label>
-            <Select value={gateway} onValueChange={setGateway}>
-              <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100">
-                <SelectValue placeholder="Select Gateway" />
-              </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
-                <SelectItem value="RAZORPAY">Razorpay</SelectItem>
-                <SelectItem value="PHONEPE">PhonePe</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Source Type</Label>
+              <Select value={sourceType} onValueChange={(val: any) => setSourceType(val)}>
+                <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-blue-500">
+                  <SelectValue placeholder="Select Source Type" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                  <SelectItem value="GATEWAY">Payment Gateway</SelectItem>
+                  <SelectItem value="BANK">Bank Statement</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {sourceType === 'GATEWAY' ? (
+              <div className="space-y-2">
+                <Label>Gateway Provider</Label>
+                <Select value={gateway} onValueChange={(val: any) => setGateway(val)}>
+                  <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-blue-500">
+                    <SelectValue placeholder="Select Gateway" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                    <SelectItem value="RAZORPAY">Razorpay</SelectItem>
+                    <SelectItem value="PHONEPE">PhonePe</SelectItem>
+                    <SelectItem value="PAYU">PayU</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Bank Name</Label>
+                <Select value={bankName} onValueChange={(val: any) => setBankName(val)}>
+                  <SelectTrigger className="bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-blue-500">
+                    <SelectValue placeholder="Select Bank" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                    <SelectItem value="HDFC">HDFC Bank</SelectItem>
+                    <SelectItem value="ICICI">ICICI Bank</SelectItem>
+                    <SelectItem value="SBI">State Bank of India</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

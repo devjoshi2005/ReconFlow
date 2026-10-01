@@ -22,16 +22,14 @@ public class DlqListenerService {
 
     private final SqsClient sqsClient;
 
-    @Value("${aws.sqs.dlq-name:reconciliation-jobs-dlq}")
-    private String dlqName;
+    @Value("${aws.sqs.dlq-url}")
+    private String dlqUrl;
 
     @Scheduled(fixedDelay = 60000) // Poll DLQ every minute
     public void pollDeadLetterQueue() {
         try {
-            String queueUrl = sqsClient.getQueueUrl(GetQueueUrlRequest.builder().queueName(dlqName).build()).queueUrl();
-            
             ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
-                    .queueUrl(queueUrl)
+                    .queueUrl(dlqUrl)
                     .maxNumberOfMessages(10)
                     .waitTimeSeconds(5) // Short polling for DLQ
                     .build();
@@ -45,7 +43,7 @@ public class DlqListenerService {
                 // For now we just log it and delete it so we don't process it infinitely
                 
                 sqsClient.deleteMessage(DeleteMessageRequest.builder()
-                        .queueUrl(queueUrl)
+                        .queueUrl(dlqUrl)
                         .receiptHandle(message.receiptHandle())
                         .build());
             }
