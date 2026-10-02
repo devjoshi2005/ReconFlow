@@ -22,14 +22,30 @@ public class UploadController {
             @RequestParam("file") MultipartFile file,
             @RequestParam("sourceType") String sourceType,
             @RequestParam(value = "gateway", required = false) String gateway,
-            @RequestParam(value = "bankName", required = false) String bankName) {
+            @RequestParam(value = "bankName", required = false) String bankName,
+            @RequestParam("settlementDate") String settlementDateStr) {
         
         try {
-            UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName);
+            java.time.LocalDate settlementDate = java.time.LocalDate.parse(settlementDateStr);
+            UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName, settlementDate);
+            
+            boolean counterpartExists = uploadService.checkCounterpartExists(sourceType, settlementDate);
+            boolean chainBPending = !counterpartExists;
+            
+            String message = "File uploaded and queued successfully.";
+            if (chainBPending) {
+                if ("GATEWAY".equalsIgnoreCase(sourceType)) {
+                    message = "Chain B pending — upload bank statement for " + settlementDateStr + " to complete reconciliation.";
+                } else {
+                    message = "Chain B pending — gateway file for " + settlementDateStr + " not yet received.";
+                }
+            }
+            
             return ResponseEntity.ok(Map.of(
-                    "message", "File uploaded and queued successfully",
+                    "message", message,
                     "fileId", uploadedFile.getId(),
-                    "status", uploadedFile.getStatus()
+                    "status", uploadedFile.getStatus(),
+                    "chainBPending", chainBPending
             ));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

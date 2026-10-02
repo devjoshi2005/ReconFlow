@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,10 +10,11 @@ import { Label } from '@/components/ui/label'
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
-export default function ResolveExceptionPage({ params }: { params: { id: string } }) {
+export default function ResolveExceptionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter()
+  const unwrappedParams = use(params)
   // Mock data fetching based on ID
-  const ex = { id: params.id, matchId: 'TXN-982112', type: 'MISSING_IN_LEDGER', discrepancy: 500.00, currency: 'INR', status: 'OPEN', gateway: 'PHONEPE' }
+  const ex = { id: unwrappedParams.id, matchId: 'TXN-982112', type: 'MISSING_IN_LEDGER', discrepancy: 500.00, currency: 'INR', status: 'OPEN', gateway: 'PHONEPE' }
 
   const [resolutionType, setResolutionType] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
@@ -32,7 +33,7 @@ export default function ResolveExceptionPage({ params }: { params: { id: string 
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Resolve Exception</h2>
-        <p className="text-zinc-400">Exception ID: {params.id}</p>
+        <p className="text-zinc-400">Exception ID: {unwrappedParams.id}</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">

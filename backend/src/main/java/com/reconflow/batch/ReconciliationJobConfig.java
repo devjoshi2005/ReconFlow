@@ -34,11 +34,22 @@ public class ReconciliationJobConfig {
     private final ReconciliationJobListener jobListener;
 
     @Bean
-    public RepositoryItemReader<LedgerTransaction> ledgerItemReader() {
+    @org.springframework.batch.core.configuration.annotation.StepScope
+    public RepositoryItemReader<LedgerTransaction> ledgerItemReader(
+            @org.springframework.beans.factory.annotation.Value("#{jobParameters['uploadedFileId']}") String uploadedFileIdStr,
+            com.reconflow.repository.UploadedFileRepository uploadedFileRepository) {
+        
+        com.reconflow.entity.UploadedFile file = uploadedFileRepository.findById(java.util.UUID.fromString(uploadedFileIdStr))
+                .orElseThrow(() -> new IllegalArgumentException("File not found: " + uploadedFileIdStr));
+                
         return new RepositoryItemReaderBuilder<LedgerTransaction>()
                 .name("ledgerItemReader")
                 .repository(ledgerRepository)
-                .methodName("findAll")
+                .methodName("findByStatusInAndGatewayIgnoreCase")
+                .arguments(java.util.Arrays.asList(
+                        java.util.Arrays.asList("INITIATED", "UNRECONCILED"),
+                        file.getGateway()
+                ))
                 .sorts(Collections.singletonMap("id", Sort.Direction.ASC))
                 .pageSize(500)
                 .build();
@@ -48,7 +59,7 @@ public class ReconciliationJobConfig {
     public Step chainAStep() {
         return new StepBuilder("chainAStep", jobRepository)
                 .<LedgerTransaction, ReconciliationResult>chunk(500, transactionManager)
-                .reader(ledgerItemReader())
+                .reader(ledgerItemReader(null, null))
                 .processor(processor)
                 .writer(writer)
                 .listener(csvInMemoryLoader) // @BeforeStep / @AfterStep hooks

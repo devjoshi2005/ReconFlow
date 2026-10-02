@@ -14,10 +14,13 @@ import software.amazon.awssdk.services.cloudwatch.model.Dimension;
 import software.amazon.awssdk.services.cloudwatch.model.GetMetricStatisticsRequest;
 import software.amazon.awssdk.services.cloudwatch.model.GetMetricStatisticsResponse;
 import software.amazon.awssdk.services.cloudwatch.model.Statistic;
-import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.GetQueueAttributesRequest;
 import software.amazon.awssdk.services.sqs.model.GetQueueAttributesResponse;
 import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -29,8 +32,9 @@ import java.util.Map;
 @Slf4j
 public class SystemService {
 
-    private final SqsClient sqsClient;
+    private final software.amazon.awssdk.services.sqs.SqsClient sqsClient;
     private final CloudWatchClient cloudWatchClient;
+    private final S3Client s3Client;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -88,12 +92,21 @@ public class SystemService {
             dto.setCpuUtilization(getMetricAverage("AWS/EC2", "CPUUtilization", "InstanceId", "i-0dummy"));
             dto.setMemoryUtilization(45.2); // Usually requires custom metric
 
-            // S3 Storage Metrics
-            Double s3Objects = getMetricAverage("AWS/S3", "NumberOfObjects", "BucketName", bucketName);
-            dto.setS3FileCount(s3Objects != null ? s3Objects.intValue() : 0);
-            
-            Double s3Bytes = getMetricAverage("AWS/S3", "BucketSizeBytes", "BucketName", bucketName);
-            dto.setS3TotalSize(s3Bytes != null ? s3Bytes.longValue() : 0L);
+            // S3 Storage Metrics (Real-time via S3Client instead of CloudWatch)
+            int fileCount = 0;
+            long totalSize = 0L;
+            try {
+                ListObjectsV2Request req = ListObjectsV2Request.builder().bucket(bucketName).build();
+                ListObjectsV2Response res = s3Client.listObjectsV2(req);
+                for (S3Object obj : res.contents()) {
+                    fileCount++;
+                    totalSize += obj.size();
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch S3 metrics directly for bucket {}", bucketName, e);
+            }
+            dto.setS3FileCount(fileCount);
+            dto.setS3TotalSize(totalSize);
 
             // API Latency Mocks (Since no @Timed is configured to write to CW yet)
             dto.setApiLatencyP50(120.5);

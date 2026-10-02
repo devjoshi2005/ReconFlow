@@ -35,6 +35,9 @@ public class CsvInMemoryLoader implements StepExecutionListener {
 
     private final S3Client s3Client;
     private final UploadedFileRepository uploadedFileRepository;
+    
+    private final List<GatewayFileAdapter> adapters;
+    private final CsvHeaderMapper headerMapper;
 
     private final ExceptionQueueRepository exceptionQueueRepository;
     private final com.reconflow.repository.GatewaySettlementRepository gatewaySettlementRepository;
@@ -76,32 +79,42 @@ public class CsvInMemoryLoader implements StepExecutionListener {
              Reader reader = new InputStreamReader(s3Object)) {
 
             if ("GATEWAY".equalsIgnoreCase(currentFile.getSourceType())) {
-                org.springframework.batch.item.file.FlatFileItemReader<GatewaySettlementRecord> readerBean = null;
-                com.reconflow.batch.GatewayReaderConfig config = new com.reconflow.batch.GatewayReaderConfig();
+                com.opencsv.CSVReader csvReader = new com.opencsv.CSVReader(reader);
+                String[] headers = csvReader.readNext();
+                if (headers == null) throw new IllegalArgumentException("CSV is empty");
                 
-                if ("RAZORPAY".equalsIgnoreCase(currentFile.getGateway())) {
-                    readerBean = config.razorpayCsvReader(null);
-                } else if ("PHONEPE".equalsIgnoreCase(currentFile.getGateway())) {
-                    readerBean = config.phonePeCsvReader(null);
-                } else {
-                    throw new IllegalArgumentException("Unsupported Gateway: " + currentFile.getGateway());
+                java.util.Map<String, Integer> headerMap = headerMapper.buildHeaderIndex(headers);
+
+                String gateway = currentFile.getGateway().toUpperCase();
+                String gatewayToFind = ("PAYU".equals(gateway)) ? "UPAY" : gateway;
+
+                GatewayFileAdapter adapter = adapters.stream()
+                        .filter(a -> a.getGatewayName().equals(gatewayToFind))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("No adapter found for gateway: " + gateway));
+
+                String[] line;
+                while ((line = csvReader.readNext()) != null) {
+                    if (line.length == 0 || (line.length == 1 && line[0].trim().isEmpty())) continue;
+
+                    try {
+                        GatewaySettlementRecord record = adapter.parse(headerMap, line, headerMapper);
+                        
+                        if (record.getGatewayTransactionId() != null) {
+                            gatewayRecords.put(record.getGatewayTransactionId(), record);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to parse row: {}", String.join(",", line), e);
+                    }
                 }
-                
-                readerBean.setResource(new org.springframework.core.io.InputStreamResource(s3Object));
-                readerBean.open(stepExecution.getExecutionContext());
-                
-                GatewaySettlementRecord record;
-                while ((record = readerBean.read()) != null) {
-                    record.setGateway(currentFile.getGateway()); // Enrich with context
-                    gatewayRecords.put(record.getGatewayTransactionId(), record);
-                }
-                readerBean.close();
+                csvReader.close();
                 log.info("Loaded {} Gateway rows into HashMap", gatewayRecords.size());
 
             } else if ("BANK".equalsIgnoreCase(currentFile.getSourceType())) {
                 com.opencsv.bean.CsvToBean<BankStatementRecord> csvToBean = new com.opencsv.bean.CsvToBeanBuilder<BankStatementRecord>(reader)
                         .withType(BankStatementRecord.class)
                         .withIgnoreLeadingWhiteSpace(true)
+                        .withIgnoreEmptyLine(true)
                         .build();
 
                 java.util.List<BankStatementRecord> records = csvToBean.parse();
@@ -114,6 +127,11 @@ public class CsvInMemoryLoader implements StepExecutionListener {
 
         } catch (Exception e) {
             log.error("Failed to load CSV into memory", e);
+            try {
+                java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.FileWriter("/tmp/recon_error.log"));
+                e.printStackTrace(pw);
+                pw.close();
+            } catch (Exception ex) {}
             throw new RuntimeException("Failed to load CSV", e);
         }
     }
@@ -128,7 +146,9 @@ public class CsvInMemoryLoader implements StepExecutionListener {
             List<com.reconflow.entity.GatewaySettlement> settlements = new java.util.ArrayList<>();
             
             for (GatewaySettlementRecord record : gatewayRecords.values()) {
+                UUID matchId = UUID.randomUUID();
                 com.reconflow.entity.GatewaySettlement settlement = com.reconflow.entity.GatewaySettlement.builder()
+                    .id(matchId)
                     .uploadedFileId(currentFile.getId())
                     .gateway(record.getGateway())
                     .gatewayTransactionId(record.getGatewayTransactionId())
@@ -147,8 +167,8 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                 
                 com.reconflow.entity.ExceptionQueue exception = com.reconflow.entity.ExceptionQueue.builder()
                         .reconciliationRunId(runId)
-                        .matchId(settlement.getId()) // Ensure we generate ID for settlement via @PrePersist or UUID generator beforehand.
-                        .matchType("GATEWAY_SETTLEMENT")
+                        .matchId(matchId)
+                        .matchType("A")
                         .exceptionType("MISSING_IN_LEDGER")
                         .discrepancyAmount(record.getAmount())
                         .currency("INR")

@@ -1,7 +1,28 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Activity, AlertTriangle, CheckCircle2, Files } from "lucide-react"
 
 export default function DashboardPage() {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('http://localhost:8080/api/v1/analytics/summary')
+      .then(res => res.json())
+      .then(d => {
+        setData(d)
+        setLoading(false)
+      })
+      .catch(e => {
+        console.error("Failed to fetch dashboard analytics", e)
+        setLoading(false)
+      })
+  }, [])
+
+  if (loading) return <div className="flex h-64 items-center justify-center text-zinc-500">Loading Dashboard...</div>
+
   return (
     <div className="space-y-6">
       <div>
@@ -10,33 +31,33 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50">
+        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50 hover:bg-zinc-900/60 transition-colors shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-400">Total Processed</CardTitle>
             <Activity className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">14,231</div>
-            <p className="text-xs text-zinc-500">+20% from yesterday</p>
+            <div className="text-2xl font-bold">{data?.totalProcessed?.toLocaleString() || 0}</div>
+            <p className="text-xs text-zinc-500">Ledger transactions</p>
           </CardContent>
         </Card>
-        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50">
+        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50 hover:bg-zinc-900/60 transition-colors shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-zinc-400">Successfully Reconciled</CardTitle>
+            <CardTitle className="text-sm font-medium text-zinc-400">Success Rate</CardTitle>
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">14,102</div>
-            <p className="text-xs text-zinc-500">99.1% Success Rate</p>
+            <div className="text-2xl font-bold text-green-500">{data?.successRateOverall || 0}%</div>
+            <p className="text-xs text-zinc-500">Overall Match Rate</p>
           </CardContent>
         </Card>
-        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50">
+        <Card className="bg-zinc-900 border-zinc-800 text-zinc-50 hover:bg-zinc-900/60 transition-colors shadow-xl">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-zinc-400">Open Exceptions</CardTitle>
             <AlertTriangle className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-500">129</div>
+            <div className="text-2xl font-bold text-yellow-500">{data?.openExceptions || 0}</div>
             <p className="text-xs text-zinc-500">Requires Attention</p>
           </CardContent>
         </Card>
@@ -46,7 +67,7 @@ export default function DashboardPage() {
             <Files className="h-4 w-4 text-zinc-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2</div>
+            <div className="text-2xl font-bold">{data?.filesQueued || 0}</div>
             <p className="text-xs text-zinc-500">Processing in background...</p>
           </CardContent>
         </Card>
@@ -67,18 +88,22 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
              <div className="space-y-4">
-               {[1,2,3,4,5].map(i => (
-                 <div key={i} className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                   <div>
-                     <p className="text-sm font-medium">AMOUNT_MISMATCH</p>
-                     <p className="text-xs text-zinc-400">TXN-839201</p>
+               {data?.recentExceptions && data.recentExceptions.length > 0 ? (
+                 data.recentExceptions.map((ex: any) => (
+                   <div key={ex.id} className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                     <div>
+                       <p className="text-sm font-medium">{ex.exceptionType}</p>
+                       <p className="text-xs text-zinc-400">{ex.matchId}</p>
+                     </div>
+                     <div className="text-right">
+                       <p className="text-sm font-medium text-red-400">-${ex.discrepancyAmount?.toFixed(2) || '0.00'}</p>
+                       <p className={`text-xs ${ex.status === 'OPEN' ? 'text-yellow-500' : 'text-zinc-500'}`}>{ex.status}</p>
+                     </div>
                    </div>
-                   <div className="text-right">
-                     <p className="text-sm font-medium text-red-400">-$42.00</p>
-                     <p className="text-xs text-yellow-500">Investigating</p>
-                   </div>
-                 </div>
-               ))}
+                 ))
+               ) : (
+                 <p className="text-sm text-zinc-500">No recent exceptions found.</p>
+               )}
              </div>
           </CardContent>
         </Card>

@@ -12,7 +12,6 @@ import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -64,7 +63,7 @@ public class UploadService {
     }
 
     @Transactional
-    public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName) throws Exception {
+    public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate) throws Exception {
         // Rate Limiting (Capacity: 10, Refill: 0.5 per sec)
         String userId = "system"; // Mocking user for now, in real scenario fetch from SecurityContext
         List<Long> result = redisTemplate.execute(
@@ -79,9 +78,9 @@ public class UploadService {
 
         String checksum = calculateChecksum(file);
 
-        // Idempotency check with Redis (Lock for 24h)
+        // Idempotency check with Redis (Lock for 30s to prevent double-clicks)
         String idempotencyKey = "upload:idempotency:" + checksum;
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofHours(24));
+        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(30));
         
         if (Boolean.FALSE.equals(isNew)) {
             throw new IllegalArgumentException("File is already processing or uploaded.");
@@ -109,6 +108,7 @@ public class UploadService {
                 .sourceType(sourceType)
                 .gateway(gateway)
                 .bankName(bankName)
+                .settlementDate(settlementDate)
                 .status("QUEUED")
                 .build();
         
@@ -162,5 +162,12 @@ public class UploadService {
 
     public java.util.Optional<UploadedFile> getFileById(UUID id) {
         return uploadedFileRepository.findById(id);
+    }
+
+    public boolean checkCounterpartExists(String sourceType, java.time.LocalDate settlementDate) {
+        if (settlementDate == null) return false;
+        
+        String counterpartSource = "GATEWAY".equalsIgnoreCase(sourceType) ? "BANK" : "GATEWAY";
+        return uploadedFileRepository.existsBySourceTypeAndSettlementDate(counterpartSource, settlementDate);
     }
 }

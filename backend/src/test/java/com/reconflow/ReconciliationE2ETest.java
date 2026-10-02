@@ -30,7 +30,8 @@ import java.time.ZonedDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 public class ReconciliationE2ETest {
 
     @Autowired
@@ -101,8 +102,8 @@ public class ReconciliationE2ETest {
     @Test
     void testFullReconciliationPipeline() throws InterruptedException {
         // 1. Prepare Mock CSV
-        String csvContent = "gatewayTransactionId,amount,status,utr,transactionDateStr\n" +
-                testTxnId + ",500.00,SUCCESS,UTR_123,2023-10-01 10:00:00";
+        String csvContent = "phonepereferenceid,merchantreferenceid,amount,fee,igst,cgst,sgst,bankreferenceno,creationdate\n" +
+                testTxnId + ",ORDER-1,500.00,0.00,0.00,0.00,0.00,UTR_123,01/10/2026";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -118,6 +119,7 @@ public class ReconciliationE2ETest {
         body.add("file", fileAsResource);
         body.add("sourceType", "GATEWAY");
         body.add("gateway", "PHONEPE"); // Crucial so it routes to the correct reader
+        body.add("settlementDate", "2026-09-28");
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
@@ -131,6 +133,9 @@ public class ReconciliationE2ETest {
         // 3. Wait for SQS listener and Batch Job to complete
         boolean isCompleted = false;
         for (int i = 0; i < 45; i++) {
+            // Manually process jobs in the queue to avoid background thread race conditions
+            sqsJobListenerService.pollMainQueue();
+            
             Thread.sleep(2000); // Wait 2s
             
             UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
@@ -138,7 +143,7 @@ public class ReconciliationE2ETest {
                 isCompleted = true;
                 break;
             } else if ("FAILED".equals(updatedFile.getStatus())) {
-                System.err.println("Batch Job FAILED! Check logs.");
+                System.err.println("Batch Job FAILED! Check logs. Error: " + updatedFile.getErrorMessage());
                 break;
             }
         }

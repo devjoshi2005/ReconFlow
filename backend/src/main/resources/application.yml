@@ -13,7 +13,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: none # We use Supabase native schema
+      ddl-auto: update # Automatically apply schema changes
     show-sql: true
     properties:
       hibernate:

@@ -8,7 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 @Builder
@@ -18,18 +18,18 @@ public class BankStatementRecord {
     @CsvBindByName(column = "bankName", required = false)
     private String bankName;
     
-    @CsvBindByName(column = "utr")
+    @CsvBindByName(column = "ref_no", required = false)
     private String utr;
     
     @CsvBindByName(column = "accountNo", required = false)
     private String accountNo;
     
-    @CsvBindByName(column = "creditAmount")
+    @CsvBindByName(column = "credit", required = false)
     private BigDecimal creditAmount;
     
-    @CsvBindByName(column = "transactionDateStr", required = false)
-    @CsvDate("yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime transactionDate;
+    @CsvBindByName(column = "txn_date", required = false)
+    @CsvDate("dd-MM-yyyy")
+    private LocalDate transactionDate;
     
     @CsvBindByName(column = "narration", required = false)
     private String narration;

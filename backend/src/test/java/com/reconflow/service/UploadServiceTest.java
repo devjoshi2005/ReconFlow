@@ -83,7 +83,7 @@ class UploadServiceTest {
         when(uploadedFileRepository.save(any(UploadedFile.class))).thenReturn(savedFile);
         
         // Act
-        UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null);
+        UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now());
 
         // Run afterCommit hooks manually for testing
         TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
@@ -107,7 +107,7 @@ class UploadServiceTest {
 
         // Act & Assert
         assertThrows(IllegalArgumentException.class, () -> {
-            uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null);
+            uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now());
         });
 
         verify(s3Client, never()).putObject(any(PutObjectRequest.class), any(software.amazon.awssdk.core.sync.RequestBody.class));

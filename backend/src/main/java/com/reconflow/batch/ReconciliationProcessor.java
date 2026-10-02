@@ -42,14 +42,14 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
             ExceptionQueue exception = ExceptionQueue.builder()
                     .reconciliationRunId(runId)
                     .matchId(ledger.getId())
-                    .matchType("LEDGER_TRANSACTION")
+                    .matchType("A")
                     .exceptionType("MISSING_IN_GATEWAY")
                     .discrepancyAmount(ledger.getAmount())
                     .currency(ledger.getCurrency())
                     .status("OPEN")
                     .build();
 
-            ledger.setStatus("EXCEPTION");
+            ledger.setStatus("UNRECONCILED");
 
             return ReconciliationResult.builder()
                     .matchedLedgerTransaction(ledger)
@@ -81,14 +81,14 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
             ExceptionQueue exception = ExceptionQueue.builder()
                     .reconciliationRunId(runId)
                     .matchId(ledger.getId())
-                    .matchType("LEDGER_TRANSACTION")
+                    .matchType("A")
                     .exceptionType("AMOUNT_MISMATCH")
                     .discrepancyAmount(discrepancy)
                     .currency(ledger.getCurrency())
                     .status("OPEN")
                     .build();
 
-            ledger.setStatus("EXCEPTION");
+            ledger.setStatus("UNRECONCILED");
 
             return ReconciliationResult.builder()
                     .matchedLedgerTransaction(ledger)
@@ -98,7 +98,7 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
         }
 
         // Perfect Match
-        ledger.setStatus("MATCHED");
+        ledger.setStatus("RECONCILED");
         
         ChainAMatch match = ChainAMatch.builder()
                 .reconciliationRunId(runId)

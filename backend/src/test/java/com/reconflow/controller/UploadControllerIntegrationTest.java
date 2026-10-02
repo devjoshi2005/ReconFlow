@@ -18,7 +18,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 public class UploadControllerIntegrationTest {
 
     @Autowired
@@ -56,6 +57,7 @@ public class UploadControllerIntegrationTest {
         body.add("file", fileAsResource);
         body.add("sourceType", "GATEWAY");
         body.add("gateway", "RAZORPAY");
+        body.add("settlementDate", "2026-09-28");
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
@@ -65,7 +67,7 @@ public class UploadControllerIntegrationTest {
         // Assert
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().get("message")).isEqualTo("File uploaded and queued successfully");
+        assertThat((String) response.getBody().get("message")).contains("Chain B pending");
         assertThat(response.getBody().get("status")).isEqualTo("QUEUED");
 
         // Verify Database insertion

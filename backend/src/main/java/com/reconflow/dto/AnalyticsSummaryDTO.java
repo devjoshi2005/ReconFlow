@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 import java.util.Map;
+import com.reconflow.entity.ExceptionQueue;
 
 @Data
 @Builder
@@ -17,8 +18,13 @@ public class AnalyticsSummaryDTO {
     private double successRateOverall;
     private double successRateRazorpay;
     private double successRatePhonePe;
+    private double successRateUpay;
     private long openExceptions;
     private double avgResolutionTimeDays;
     private String highestExceptionSource;
     private List<Map<String, Object>> exceptionsByType;
+    private List<Map<String, Object>> volumeTimeSeries;
+    private List<Map<String, Object>> exceptionTimeSeries;
+    private long filesQueued;
+    private List<ExceptionQueue> recentExceptions;
 }

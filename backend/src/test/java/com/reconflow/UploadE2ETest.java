@@ -27,7 +27,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 public class UploadE2ETest {
 
     @Autowired
@@ -83,6 +84,7 @@ public class UploadE2ETest {
         body.add("file", fileAsResource);
         body.add("sourceType", "GATEWAY");
         body.add("gateway", "PHONEPE");
+        body.add("settlementDate", "2026-09-28");
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 

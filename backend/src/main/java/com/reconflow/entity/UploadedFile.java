@@ -45,6 +45,9 @@ public class UploadedFile {
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Column(name = "settlement_date")
+    private java.time.LocalDate settlementDate;
+
     @Column(name = "uploaded_by")
     private UUID uploadedBy;
 

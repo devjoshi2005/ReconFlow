@@ -10,13 +10,6 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Search, ExternalLink } from 'lucide-react'
 
-// Mock Data representing ExceptionQueue items
-const mockExceptions = [
-  { id: 'exc-1', matchId: 'E2E-TXN-1790694405569', type: 'AMOUNT_MISMATCH', discrepancy: -42.50, currency: 'INR', status: 'OPEN', gateway: 'RAZORPAY', date: '2023-10-01' },
-  { id: 'exc-2', matchId: 'TXN-982112', type: 'MISSING_IN_LEDGER', discrepancy: 500.00, currency: 'INR', status: 'INVESTIGATING', gateway: 'PHONEPE', date: '2023-10-02' },
-  { id: 'exc-3', matchId: 'TXN-449102', type: 'AMOUNT_MISMATCH', discrepancy: 10.00, currency: 'INR', status: 'RESOLVED', gateway: 'RAZORPAY', date: '2023-10-02' },
-]
-
 export default function ExceptionsPage() {
   const [filterType, setFilterType] = useState<string>('ALL')
   const [search, setSearch] = useState<string>('')

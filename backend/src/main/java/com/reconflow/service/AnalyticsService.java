@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reconflow.dto.AnalyticsSummaryDTO;
 import com.reconflow.repository.ExceptionQueueRepository;
 import com.reconflow.repository.LedgerTransactionRepository;
+import com.reconflow.repository.UploadedFileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -19,6 +20,7 @@ public class AnalyticsService {
 
     private final ExceptionQueueRepository exceptionRepo;
     private final LedgerTransactionRepository ledgerRepo;
+    private final UploadedFileRepository uploadedFileRepo;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -49,26 +51,61 @@ public class AnalyticsService {
     }
 
     private AnalyticsSummaryDTO computeFromPostgres(String range) {
-        long totalProcessed = ledgerRepo.count();
-        long totalMatched = ledgerRepo.countMatched();
+        java.time.ZonedDateTime since = switch (range != null ? range : "90d") {
+            case "7d" -> java.time.ZonedDateTime.now().minusDays(7);
+            case "30d" -> java.time.ZonedDateTime.now().minusDays(30);
+            default -> java.time.ZonedDateTime.now().minusDays(90);
+        };
+
+        long totalProcessed = ledgerRepo.countSince(since);
+        long totalMatched = ledgerRepo.countMatchedSince(since);
         long openExceptions = exceptionRepo.countOpenExceptions();
+        
+        long filesQueued = uploadedFileRepo.countByStatusIn(java.util.List.of("PENDING", "PROCESSING"));
+        java.util.List<com.reconflow.entity.ExceptionQueue> recentExceptions = exceptionRepo.findTop5ByOrderByCreatedAtDesc();
         
         double overallRate = totalProcessed > 0 ? ((double) totalMatched / totalProcessed) * 100 : 0.0;
         
-        // For demonstration, mocking the specific gateway logic
-        // In reality, this requires counting by gateway.
-        double razorpayRate = overallRate > 0 ? overallRate - 0.5 : 0.0; 
-        double phonepeRate = overallRate > 0 ? overallRate - 1.2 : 0.0;
+        java.util.List<java.util.Map<String, Object>> totalsByGw = ledgerRepo.countTotalByGatewaySince(since);
+        java.util.List<java.util.Map<String, Object>> matchedByGw = ledgerRepo.countMatchedByGatewaySince(since);
+
+        double razorpayRate = calculateRate(totalsByGw, matchedByGw, "RAZORPAY");
+        double phonepeRate = calculateRate(totalsByGw, matchedByGw, "PHONEPE");
+        double upayRate = calculateRate(totalsByGw, matchedByGw, "UPAY");
+
+        Double avgDays = exceptionRepo.avgResolutionTimeDays();
+        String topGateway = exceptionRepo.topExceptionGateway();
 
         return AnalyticsSummaryDTO.builder()
                 .totalProcessed(totalProcessed)
                 .successRateOverall(Math.round(overallRate * 100.0) / 100.0)
                 .successRateRazorpay(Math.round(razorpayRate * 100.0) / 100.0)
                 .successRatePhonePe(Math.round(phonepeRate * 100.0) / 100.0)
+                .successRateUpay(Math.round(upayRate * 100.0) / 100.0)
                 .openExceptions(openExceptions)
-                .avgResolutionTimeDays(1.2) // Mocked complex calc
-                .highestExceptionSource("PHONEPE") // Mocked group by
+                .avgResolutionTimeDays(avgDays != null ? Math.round(avgDays * 100.0) / 100.0 : 0.0)
+                .highestExceptionSource(topGateway != null ? topGateway : "N/A")
                 .exceptionsByType(exceptionRepo.countByExceptionType())
+                .volumeTimeSeries(ledgerRepo.getVolumeTimeSeries(since))
+                .exceptionTimeSeries(exceptionRepo.getExceptionTimeSeries(since))
+                .filesQueued(filesQueued)
+                .recentExceptions(recentExceptions)
                 .build();
+    }
+
+    private double calculateRate(java.util.List<java.util.Map<String, Object>> totals, java.util.List<java.util.Map<String, Object>> matched, String gateway) {
+        long t = 0;
+        long m = 0;
+        for (java.util.Map<String, Object> map : totals) {
+            if (gateway.equalsIgnoreCase((String) map.get("gateway"))) {
+                t = ((Number) map.get("count")).longValue();
+            }
+        }
+        for (java.util.Map<String, Object> map : matched) {
+            if (gateway.equalsIgnoreCase((String) map.get("gateway"))) {
+                m = ((Number) map.get("count")).longValue();
+            }
+        }
+        return t > 0 ? ((double) m / t) * 100 : 0.0;
     }
 }

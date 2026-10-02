@@ -40,8 +40,12 @@ public class SqsJobListenerService {
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
 
+    @Value("${scheduling.enabled:true}")
+    private boolean schedulingEnabled;
+
     @Scheduled(fixedDelay = 10000) // Poll every 10 seconds
     public void pollMainQueue() {
+        if (!schedulingEnabled) return;
         try {
             ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
                     .queueUrl(queueUrl)

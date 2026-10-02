@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BarChart3, TrendingUp, TrendingDown, Clock, AlertTriangle, Layers, Server, Database, HardDrive, Activity } from "lucide-react"
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, LineChart, Line 
+  AreaChart, Area, LineChart, Line, PieChart, Pie, Cell
 } from 'recharts'
 
 export default function AnalyticsPage() {
@@ -50,28 +50,13 @@ export default function AnalyticsPage() {
       })
   }, [])
 
-  // Mocked time-series data for the charts since backend DTO doesn't have it yet
-  const volumeData = [
-    { name: 'Mon', processed: 4000, matched: 3950 },
-    { name: 'Tue', processed: 3000, matched: 2980 },
-    { name: 'Wed', processed: 5000, matched: 4900 },
-    { name: 'Thu', processed: 4780, matched: 4700 },
-    { name: 'Fri', processed: 5890, matched: 5850 },
-    { name: 'Sat', processed: 2390, matched: 2380 },
-    { name: 'Sun', processed: 3490, matched: 3450 },
-  ]
-
-  const exceptionTimeData = [
-    { name: 'Mon', OPEN: 12, INVESTIGATING: 5, RESOLVED: 45 },
-    { name: 'Tue', OPEN: 8, INVESTIGATING: 10, RESOLVED: 30 },
-    { name: 'Wed', OPEN: 15, INVESTIGATING: 12, RESOLVED: 50 },
-    { name: 'Thu', OPEN: 20, INVESTIGATING: 15, RESOLVED: 40 },
-    { name: 'Fri', OPEN: 5, INVESTIGATING: 8, RESOLVED: 60 },
-  ]
-
   if (loading) {
     return <div className="flex h-64 items-center justify-center text-zinc-500">Loading Analytics...</div>
   }
+
+  // Use real data if available, fallback to mock (or empty if none)
+  const volumeData = data?.volumeTimeSeries || []
+  const exceptionTimeData = data?.exceptionTimeSeries || []
 
   // Use real data if available, fallback to mock
   const totalProcessed = data?.totalProcessed || 0
@@ -95,19 +80,13 @@ export default function AnalyticsPage() {
         <p className="text-zinc-400 mt-1">Deep dive into reconciliation success rates and system health.</p>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="bg-zinc-900/50 border border-zinc-800/50 mb-4 p-1 rounded-xl">
-          <TabsTrigger value="overview" className="rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-white transition-all">Overview</TabsTrigger>
-          <TabsTrigger value="gateway" className="rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-white transition-all">By Gateway</TabsTrigger>
-          <TabsTrigger value="type" className="rounded-lg data-[state=active]:bg-zinc-800 data-[state=active]:text-white transition-all">By Exception Type</TabsTrigger>
-          {isAdmin && (
-            <TabsTrigger value="infrastructure" className="rounded-lg data-[state=active]:bg-blue-900/50 data-[state=active]:text-blue-200 transition-all">
-              Infrastructure
-            </TabsTrigger>
-          )}
+      <Tabs defaultValue="business" className="w-full">
+        <TabsList className="bg-zinc-900/50 border border-zinc-800/50 mb-4 p-1 rounded-xl grid grid-cols-2 max-w-md">
+          <TabsTrigger value="business" className="rounded-lg data-[state=active]:bg-emerald-600/20 data-[state=active]:text-emerald-400 transition-all">Business Analytics (PostgreSQL)</TabsTrigger>
+          <TabsTrigger value="infrastructure" className="rounded-lg data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-400 transition-all">System Health (CloudWatch)</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6">
+        <TabsContent value="business" className="space-y-6">
           {/* 6 KPI Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Card className="bg-zinc-900/40 backdrop-blur-md border-zinc-800/50 hover:bg-zinc-900/60 transition-colors shadow-2xl">
@@ -230,17 +209,33 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="gateway">
-          <Card className="bg-zinc-900/40 backdrop-blur-sm border-zinc-800/50">
-            <CardContent className="pt-6">
-              <p className="text-zinc-400">Gateway specific analytics will populate here.</p>
+          <div className="pt-6 border-t border-zinc-800/50 mt-8"></div>
+          {/* Gateway Metrics */}
+          <Card className="bg-zinc-900/40 backdrop-blur-md border-zinc-800/50 shadow-2xl">
+            <CardHeader>
+              <CardTitle>Match Rates by Gateway</CardTitle>
+              <CardDescription>Comparison of reconciliation success rates across payment processors.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[400px] mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={[
+                    { name: 'Razorpay', rate: data?.successRateRazorpay || 0 },
+                    { name: 'PhonePe', rate: data?.successRatePhonePe || 0 },
+                    { name: 'UPAY', rate: data?.successRateUpay || 0 }
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                    <XAxis dataKey="name" stroke="#71717a" />
+                    <YAxis stroke="#71717a" domain={[0, 100]} />
+                    <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a' }} cursor={{fill: '#27272a', opacity: 0.4}} />
+                    <Bar dataKey="rate" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Success Rate (%)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="type">
+          <div className="pt-6 border-t border-zinc-800/50 mt-8"></div>
+          {/* Type Metrics */}
           <Card className="bg-zinc-900/40 backdrop-blur-md border-zinc-800/50 shadow-2xl">
             <CardHeader>
               <CardTitle>Exception Distribution</CardTitle>
@@ -248,21 +243,31 @@ export default function AnalyticsPage() {
             <CardContent>
               <div className="h-[400px] mt-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={typeData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" horizontal={true} vertical={false}/>
-                    <XAxis type="number" stroke="#888" />
-                    <YAxis dataKey="type" type="category" stroke="#888" width={150} tick={{fill: '#ccc', fontSize: 12}} />
-                    <Tooltip cursor={{fill: '#27272a'}} contentStyle={{backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px'}} />
-                    <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={24} />
-                  </BarChart>
+                  <PieChart>
+                    <Pie
+                      data={typeData}
+                      dataKey="count"
+                      nameKey="type"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={150}
+                      fill="#8884d8"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    >
+                      {typeData.map((entry: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6'][index % 5]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a' }} />
+                    <Legend />
+                  </PieChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {isAdmin && (
-          <TabsContent value="infrastructure" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <TabsContent value="infrastructure" className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {loadingInfra ? (
               <div className="flex h-64 items-center justify-center text-zinc-500">Loading Infrastructure Data...</div>
             ) : (
@@ -317,7 +322,6 @@ export default function AnalyticsPage() {
               </div>
             )}
           </TabsContent>
-        )}
       </Tabs>
     </div>
   )
