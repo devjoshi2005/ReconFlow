@@ -30,4 +30,6 @@ public interface ExceptionQueueRepository extends JpaRepository<ExceptionQueue, 
     List<Map<String, Object>> getExceptionTimeSeries(@org.springframework.data.repository.query.Param("since") java.time.ZonedDateTime since);
 
     List<ExceptionQueue> findTop5ByOrderByCreatedAtDesc();
+    
+    List<ExceptionQueue> findAllByOrderByCreatedAtDesc();
 }

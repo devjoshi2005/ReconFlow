@@ -41,8 +41,8 @@ public class AnalyticsService {
         AnalyticsSummaryDTO result = computeFromPostgres(range);
         
         try {
-            // Store with 60s TTL
-            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(result), Duration.ofSeconds(60));
+            // Store with 2s TTL for near real-time updates while avoiding rapid DB hammering
+            redisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(result), Duration.ofSeconds(2));
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize analytics summary for caching", e);
         }

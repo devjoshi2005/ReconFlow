@@ -21,7 +21,7 @@ public class ExceptionController {
 
     @GetMapping
     public ResponseEntity<List<ExceptionQueue>> getAllExceptions() {
-        return ResponseEntity.ok(exceptionRepo.findAll()); // Simple list for now
+        return ResponseEntity.ok(exceptionRepo.findAllByOrderByCreatedAtDesc());
     }
 
     @GetMapping("/{id}")
