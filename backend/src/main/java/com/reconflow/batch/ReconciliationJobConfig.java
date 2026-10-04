@@ -47,7 +47,7 @@ public class ReconciliationJobConfig {
                 .repository(ledgerRepository)
                 .methodName("findByStatusInAndGatewayIgnoreCase")
                 .arguments(java.util.Arrays.asList(
-                        java.util.Arrays.asList("INITIATED", "UNRECONCILED"),
+                        java.util.Arrays.asList("PENDING", "UNRECONCILED"),
                         file.getGateway()
                 ))
                 .sorts(Collections.singletonMap("id", Sort.Direction.ASC))

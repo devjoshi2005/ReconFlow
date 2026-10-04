@@ -33,4 +33,16 @@ public class BankStatementRecord {
     
     @CsvBindByName(column = "narration", required = false)
     private String narration;
+
+    public String getUtr() {
+        if (narration != null) {
+            String[] parts = narration.split("[-/\\\\s]+");
+            for (String part : parts) {
+                if (part.startsWith("YESBR") || part.startsWith("UTR") || part.startsWith("PPREF")) {
+                    return part;
+                }
+            }
+        }
+        return utr;
+    }
 }

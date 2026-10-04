@@ -48,12 +48,16 @@ public class ReconciliationJobListener implements JobExecutionListener {
             }
         }
 
-        // Invalidate Analytics Cache
+        // Invalidate Analytics Cache and Publish Job Completion Event
         try {
             redisTemplate.delete(redisTemplate.keys("analytics:summary:*"));
             log.info("Invalidated Redis analytics cache after job completion.");
+            
+            String eventMessage = "{\"fileId\":\"" + uploadedFileIdStr + "\", \"status\":\"" + jobExecution.getStatus() + "\"}";
+            redisTemplate.convertAndSend("job:events", eventMessage);
+            log.info("Published job completion event to Redis: {}", eventMessage);
         } catch (Exception e) {
-            log.error("Failed to invalidate Redis cache", e);
+            log.error("Failed to interact with Redis after job completion", e);
         }
     }
 }

@@ -55,22 +55,78 @@ public class ChainBTasklet implements Tasklet {
         List<ChainBMatch> matchesToSave = new ArrayList<>();
         List<ExceptionQueue> exceptionsToSave = new ArrayList<>();
 
-        for (Map.Entry<String, List<GatewaySettlement>> entry : groupedByUtr.entrySet()) {
-            String utr = entry.getKey();
-            List<GatewaySettlement> settlements = entry.getValue();
+        // The bank records are loaded from the CSV.
+        List<BankStatementRecord> allBankRecords = new ArrayList<>(bankRecords.values());
+        Set<String> matchedGatewayUtrs = new HashSet<>();
 
-            BigDecimal sumNetAmount = settlements.stream()
-                    .map(GatewaySettlement::getNetAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (BankStatementRecord bankRecord : allBankRecords) {
+            String narration = bankRecord.getNarration() != null ? bankRecord.getNarration() : "";
+            boolean matchedAny = false;
 
-            BankStatementRecord bankRecord = bankRecords.remove(utr);
+            for (Map.Entry<String, List<GatewaySettlement>> entry : groupedByUtr.entrySet()) {
+                String knownUtr = entry.getKey();
+                
+                // PRODUCTION APPROACH: The UTR from the gateway CSV appears IN the bank narration
+                if (narration.contains(knownUtr)) {
+                    matchedAny = true;
+                    matchedGatewayUtrs.add(knownUtr);
+                    
+                    List<GatewaySettlement> settlements = entry.getValue();
+                    BigDecimal sumNetAmount = settlements.stream()
+                            .map(GatewaySettlement::getNetAmount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            if (bankRecord == null) {
-                // We have a gateway settlement batch, but no bank statement found yet -> MISSING_IN_BANK
-                // (Could just be bank statement is delayed)
+                    if (sumNetAmount.compareTo(bankRecord.getCreditAmount()) != 0) {
+                        BigDecimal discrepancy = sumNetAmount.subtract(bankRecord.getCreditAmount()).abs();
+                        ExceptionQueue exception = ExceptionQueue.builder()
+                                .reconciliationRunId(runId)
+                                .matchId(settlements.get(0).getId())
+                                .matchType("B")
+                                .exceptionType("NET_AMOUNT_MISMATCH")
+                                .discrepancyAmount(discrepancy)
+                                .currency("INR")
+                                .status("OPEN")
+                                .build();
+                        exceptionsToSave.add(exception);
+                    } else {
+                        ChainBMatch match = ChainBMatch.builder()
+                                .reconciliationRunId(runId)
+                                .gatewaySettlementId(settlements.get(0).getId())
+                                .bankStatementId(UUID.randomUUID())
+                                .matchStatus("MATCHED")
+                                .build();
+                        matchesToSave.add(match);
+                    }
+                    break; // Found the UTR for this bank row, stop checking other UTRs
+                }
+            }
+
+            if (!matchedAny) {
+                // No known UTR found in this narration -> MISSING_IN_GATEWAY
                 ExceptionQueue exception = ExceptionQueue.builder()
                         .reconciliationRunId(runId)
-                        .matchId(settlements.get(0).getId()) // attach to first settlement for traceability
+                        .matchId(UUID.randomUUID())
+                        .matchType("B")
+                        .exceptionType("MISSING_IN_GATEWAY")
+                        .discrepancyAmount(bankRecord.getCreditAmount())
+                        .currency("INR")
+                        .status("OPEN")
+                        .build();
+                exceptionsToSave.add(exception);
+            }
+        }
+
+        // Known UTRs that were never found in any bank row -> MISSING_IN_BANK
+        for (Map.Entry<String, List<GatewaySettlement>> entry : groupedByUtr.entrySet()) {
+            if (!matchedGatewayUtrs.contains(entry.getKey())) {
+                List<GatewaySettlement> settlements = entry.getValue();
+                BigDecimal sumNetAmount = settlements.stream()
+                        .map(GatewaySettlement::getNetAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                        
+                ExceptionQueue exception = ExceptionQueue.builder()
+                        .reconciliationRunId(runId)
+                        .matchId(settlements.get(0).getId())
                         .matchType("B")
                         .exceptionType("MISSING_IN_BANK")
                         .discrepancyAmount(sumNetAmount)
@@ -78,45 +134,7 @@ public class ChainBTasklet implements Tasklet {
                         .status("OPEN")
                         .build();
                 exceptionsToSave.add(exception);
-            } else {
-                // Compare Sum Net Amount vs Bank Credit Amount
-                if (sumNetAmount.compareTo(bankRecord.getCreditAmount()) != 0) {
-                    BigDecimal discrepancy = sumNetAmount.subtract(bankRecord.getCreditAmount()).abs();
-                    ExceptionQueue exception = ExceptionQueue.builder()
-                            .reconciliationRunId(runId)
-                            .matchId(settlements.get(0).getId())
-                            .matchType("B")
-                            .exceptionType("NET_AMOUNT_MISMATCH")
-                            .discrepancyAmount(discrepancy)
-                            .currency("INR")
-                            .status("OPEN")
-                            .build();
-                    exceptionsToSave.add(exception);
-                } else {
-                    // Match!
-                    ChainBMatch match = ChainBMatch.builder()
-                            .reconciliationRunId(runId)
-                            .gatewaySettlementId(settlements.get(0).getId())
-                            .bankStatementId(UUID.randomUUID()) // Mocking the bank statement persistence
-                            .matchStatus("MATCHED")
-                            .build();
-                    matchesToSave.add(match);
-                }
             }
-        }
-
-        // Remaining bank records have no corresponding Gateway batch -> MISSING_IN_GATEWAY
-        for (BankStatementRecord remainingBank : bankRecords.values()) {
-            ExceptionQueue exception = ExceptionQueue.builder()
-                    .reconciliationRunId(runId)
-                    .matchId(UUID.randomUUID())
-                    .matchType("B")
-                    .exceptionType("MISSING_IN_GATEWAY")
-                    .discrepancyAmount(remainingBank.getCreditAmount())
-                    .currency("INR")
-                    .status("OPEN")
-                    .build();
-            exceptionsToSave.add(exception);
         }
 
         if (!matchesToSave.isEmpty()) {

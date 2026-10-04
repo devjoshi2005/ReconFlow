@@ -37,6 +37,7 @@ public class UploadService {
     private final S3Client s3Client;
     private final SqsClient sqsClient;
     private final UploadedFileRepository uploadedFileRepository;
+    private final com.reconflow.repository.LedgerTransactionRepository ledgerTransactionRepository;
     private final StringRedisTemplate redisTemplate;
 
     @Value("${aws.s3.bucket-name}")
@@ -139,6 +140,87 @@ public class UploadService {
         return uploadedFile;
     }
 
+    @Transactional
+    public UploadedFile processLedgerUpload(MultipartFile file, String gateway) throws Exception {
+        String userId = "system"; 
+        List<Long> result = redisTemplate.execute(
+                rateLimitScript,
+                Collections.singletonList("rate:upload:" + userId),
+                "10", "0.5", "1"
+        );
+        if (result != null && result.get(0) == 0L) {
+            throw new RuntimeException("Rate limit exceeded. Please try again later.");
+        }
+
+        String checksum = calculateChecksum(file);
+        String idempotencyKey = "upload:idempotency:" + checksum;
+        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(30));
+        
+        if (Boolean.FALSE.equals(isNew)) {
+            throw new IllegalArgumentException("File is already processing or uploaded.");
+        }
+
+        if (uploadedFileRepository.existsByFileChecksum(checksum)) {
+            redisTemplate.delete(idempotencyKey);
+            throw new IllegalArgumentException("File with this checksum has already been uploaded.");
+        }
+
+        List<com.reconflow.entity.LedgerTransaction> batch = new java.util.ArrayList<>();
+        int batchSize = 500;
+        int rowCount = 0;
+
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(file.getInputStream()))) {
+            String line = reader.readLine(); // Skip header
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                String[] parts = line.split(",");
+                if (parts.length >= 6) {
+                    batch.add(com.reconflow.entity.LedgerTransaction.builder()
+                            .internalOrderId(parts[0].trim())
+                            .gatewayTransactionId(parts[1].trim())
+                            .amount(new java.math.BigDecimal(parts[2].trim()).divide(new java.math.BigDecimal("100")))
+                            .currency(parts[3].trim())
+                            .gateway(parts[4].trim())
+                            .status("PENDING")
+                            .transactionDate(java.time.ZonedDateTime.parse(parts[5].trim() + "T00:00:00Z")) // Basic parsing
+                            .build());
+                }
+            }
+        } catch (Exception e) {
+            redisTemplate.delete(idempotencyKey);
+            throw new RuntimeException("Failed to parse Ledger CSV: " + e.getMessage(), e);
+        }
+
+        // De-duplicate using internal_order_id
+        for (int i = 0; i < batch.size(); i += batchSize) {
+            List<com.reconflow.entity.LedgerTransaction> chunk = batch.subList(i, Math.min(batch.size(), i + batchSize));
+            List<String> orderIds = chunk.stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
+            List<String> existingIds = ledgerTransactionRepository.findByInternalOrderIdIn(orderIds)
+                    .stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
+            
+            List<com.reconflow.entity.LedgerTransaction> toSave = chunk.stream()
+                    .filter(tx -> !existingIds.contains(tx.getInternalOrderId()))
+                    .toList();
+            
+            ledgerTransactionRepository.saveAll(toSave);
+            rowCount += toSave.size();
+        }
+
+        UploadedFile uploadedFile = UploadedFile.builder()
+                .fileName(file.getOriginalFilename())
+                .s3Key("DIRECT_DB_UPLOAD") // No S3
+                .fileChecksum(checksum)
+                .sourceType("LEDGER")
+                .gateway(gateway)
+                .status("COMPLETED") // Skipped queue entirely
+                .build();
+        
+        uploadedFile = uploadedFileRepository.save(uploadedFile);
+        
+        // Pass rowCount in rawData or transient if needed, but we'll return it in the controller.
+        return uploadedFile;
+    }
+
     private String calculateChecksum(MultipartFile file) throws NoSuchAlgorithmException, IOException {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream fis = file.getInputStream()) {
@@ -157,7 +239,7 @@ public class UploadService {
     }
 
     public java.util.List<UploadedFile> getAllFiles() {
-        return uploadedFileRepository.findAll();
+        return uploadedFileRepository.findAllByOrderByCreatedAtDesc();
     }
 
     public java.util.Optional<UploadedFile> getFileById(UUID id) {

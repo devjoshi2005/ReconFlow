@@ -11,6 +11,8 @@ import java.util.Map;
 
 @Repository
 public interface LedgerTransactionRepository extends JpaRepository<LedgerTransaction, UUID> {
+    List<LedgerTransaction> findByInternalOrderIdIn(List<String> internalOrderIds);
+
     Optional<LedgerTransaction> findByGatewayTransactionId(String gatewayTransactionId);
 
     org.springframework.data.domain.Page<LedgerTransaction> findByStatusInAndGatewayIgnoreCase(List<String> statuses, String gateway, org.springframework.data.domain.Pageable pageable);

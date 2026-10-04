@@ -85,6 +85,7 @@ export default function ExceptionsPage() {
           <Table>
             <TableHeader className="bg-zinc-950/50">
               <TableRow className="border-zinc-800 hover:bg-transparent">
+                <TableHead className="text-zinc-400">Timestamp</TableHead>
                 <TableHead className="text-zinc-400">Transaction ID</TableHead>
                 <TableHead className="text-zinc-400">Gateway</TableHead>
                 <TableHead className="text-zinc-400">Type</TableHead>
@@ -96,6 +97,7 @@ export default function ExceptionsPage() {
             <TableBody>
               {filtered.map((ex) => (
                 <TableRow key={ex.id} className="border-zinc-800 hover:bg-zinc-800/50">
+                  <TableCell className="text-zinc-400 text-sm">{new Date(ex.createdAt).toLocaleString()}</TableCell>
                   <TableCell className="font-medium">{ex.matchId}</TableCell>
                   <TableCell>{ex.gateway}</TableCell>
                   <TableCell>

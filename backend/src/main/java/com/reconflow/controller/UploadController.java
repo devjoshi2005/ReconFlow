@@ -26,6 +26,16 @@ public class UploadController {
             @RequestParam("settlementDate") String settlementDateStr) {
         
         try {
+            if ("LEDGER".equalsIgnoreCase(sourceType)) {
+                UploadedFile uploadedFile = uploadService.processLedgerUpload(file, gateway);
+                return ResponseEntity.status(201).body(Map.of(
+                        "message", "Ledger file uploaded and processed directly to DB.",
+                        "fileId", uploadedFile.getId(),
+                        "status", uploadedFile.getStatus(),
+                        "chainBPending", false
+                ));
+            }
+
             java.time.LocalDate settlementDate = java.time.LocalDate.parse(settlementDateStr);
             UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName, settlementDate);
             

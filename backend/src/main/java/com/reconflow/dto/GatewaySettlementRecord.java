@@ -45,4 +45,7 @@ public class GatewaySettlementRecord {
     
     @CsvBindByName(column = "gateway", required = false)
     private String gateway;
+    
+    // We add this for mapping UTR so Chain B can match it with the Bank Statement
+    private String bankTransferRef;
 }

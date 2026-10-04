@@ -13,6 +13,7 @@ export default function UploadPage() {
   const router = useRouter()
   const [gatewayFile, setGatewayFile] = useState<File | null>(null)
   const [bankFile, setBankFile] = useState<File | null>(null)
+  const [ledgerFile, setLedgerFile] = useState<File | null>(null)
   const [gateway, setGateway] = useState<string>('RAZORPAY')
   const [bankName, setBankName] = useState<string>('HDFC')
   const [settlementDate, setSettlementDate] = useState<string>(new Date().toISOString().split('T')[0])
@@ -31,6 +32,14 @@ export default function UploadPage() {
   const handleBankFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setBankFile(e.target.files[0])
+      setStatus('idle')
+      setMessages([])
+    }
+  }
+
+  const handleLedgerFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setLedgerFile(e.target.files[0])
       setStatus('idle')
       setMessages([])
     }
@@ -67,7 +76,7 @@ export default function UploadPage() {
   }
 
   const handleUpload = async () => {
-    if (!gatewayFile && !bankFile) {
+    if (!gatewayFile && !bankFile && !ledgerFile) {
       setStatus('error')
       setMessages([{ type: 'error', text: 'Please select at least one file to upload.' }])
       return
@@ -118,6 +127,18 @@ export default function UploadPage() {
         }
       }
 
+      if (ledgerFile) {
+        try {
+          const res = await uploadSingleFile(ledgerFile, 'LEDGER')
+          hasSuccess = true
+          newMessages.push({ type: 'success', text: res.message || `Ledger uploaded successfully.` })
+          setLedgerFile(null)
+        } catch (e: any) {
+          hasError = true
+          newMessages.push({ type: 'error', text: `Ledger upload failed: ${e.message}` })
+        }
+      }
+
       setMessages(newMessages)
       
       if (hasError && hasSuccess) {
@@ -141,7 +162,7 @@ export default function UploadPage() {
         <p className="text-zinc-400">Upload your Payment Gateway and Bank Statement CSVs for the same settlement date to trigger End-to-End Reconciliation.</p>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-3 md:grid-cols-2 gap-6">
         {/* Gateway Upload */}
         <Card className="bg-zinc-900/40 backdrop-blur-sm border-zinc-800/50 shadow-2xl transition-all hover:border-zinc-700/50">
           <CardHeader>
@@ -229,6 +250,50 @@ export default function UploadPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Ledger Upload */}
+        <Card className="bg-zinc-900/40 backdrop-blur-sm border-zinc-800/50 shadow-2xl transition-all hover:border-zinc-700/50">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">3. Ledger DB Data</CardTitle>
+            <CardDescription className="text-zinc-400">
+              CSV export from your internal ledger database.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-zinc-300">Gateway Type</Label>
+              <Select value={gateway} onValueChange={(val: any) => setGateway(val)}>
+                <SelectTrigger className="bg-zinc-950/50 border-zinc-800 text-zinc-100 focus:ring-blue-500 transition-colors">
+                  <SelectValue placeholder="Select Gateway" />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-100">
+                  <SelectItem value="RAZORPAY">Razorpay</SelectItem>
+                  <SelectItem value="PHONEPE">PhonePe</SelectItem>
+                  <SelectItem value="PAYU">PayU</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-zinc-300">Ledger CSV File</Label>
+              <div className="flex items-center justify-center w-full">
+                <label htmlFor="ledger-file" className="flex flex-col items-center justify-center w-full h-32 border-2 border-zinc-800 border-dashed rounded-xl cursor-pointer bg-zinc-950/30 hover:bg-zinc-800/50 hover:border-blue-500/50 transition-all group">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <UploadCloud className="w-8 h-8 mb-2 text-zinc-500 group-hover:text-blue-400 transition-colors" />
+                    <p className="mb-2 text-sm text-zinc-400"><span className="font-semibold text-blue-400">Click to upload</span></p>
+                  </div>
+                  <Input id="ledger-file" type="file" accept=".csv,.txt" className="hidden" onChange={handleLedgerFileChange} />
+                </label>
+              </div>
+              {ledgerFile && (
+                <div className="text-sm text-zinc-300 flex items-center gap-2 mt-2 bg-blue-500/10 p-2 rounded-md border border-blue-500/20">
+                  <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                  <span className="truncate max-w-[200px] font-medium">{ledgerFile.name}</span> 
+                  <span className="text-zinc-500 text-xs">({(ledgerFile.size / 1024).toFixed(2)} KB)</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="bg-zinc-900/60 backdrop-blur-md border-zinc-800/50 shadow-2xl">
@@ -251,7 +316,7 @@ export default function UploadPage() {
             <div className="w-full md:w-auto flex flex-col items-end gap-4">
               <Button 
                 onClick={handleUpload} 
-                disabled={status === 'uploading' || (!gatewayFile && !bankFile)}
+                disabled={status === 'uploading' || (!gatewayFile && !bankFile && !ledgerFile)}
                 className="w-full md:w-64 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-[0_0_20px_rgba(37,99,235,0.3)] py-6 text-lg rounded-xl transition-all hover:scale-[1.02]"
               >
                 {status === 'uploading' ? (

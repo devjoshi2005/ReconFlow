@@ -30,6 +30,9 @@ public class RazorpayAdapter implements GatewayFileAdapter {
         String settlementId = mapper.get(headerMap, row, "settlement_id");
         record.setSettlementId(settlementId);
 
+        String utr = mapper.get(headerMap, row, "settlement_utr");
+        record.setBankTransferRef(utr);
+
         String amountStr = mapper.get(headerMap, row, "amount");
         if (amountStr != null && !amountStr.isEmpty()) {
             record.setAmount(new BigDecimal(amountStr).divide(new BigDecimal("100")));

@@ -70,6 +70,7 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
                 .netAmount(gatewayRecord.getAmount()
                         .subtract(gatewayRecord.getFee() != null ? gatewayRecord.getFee() : BigDecimal.ZERO)
                         .subtract(gatewayRecord.getTax() != null ? gatewayRecord.getTax() : BigDecimal.ZERO))
+                .bankTransferRef(gatewayRecord.getBankTransferRef())
                 .settlementDate(gatewayRecord.getTransactionDate().toLocalDate())
                 .build();
 

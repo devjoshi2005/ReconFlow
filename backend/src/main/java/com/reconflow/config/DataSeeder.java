@@ -34,29 +34,6 @@ public class DataSeeder implements CommandLineRunner {
         uploadedFileRepository.deleteAll();
         ledgerTransactionRepository.deleteAll();
 
-        log.info("Seeding initial real Ledger Transactions for testing...");
-        
-        LedgerTransaction tx1 = LedgerTransaction.builder()
-                .internalOrderId("order_qkqfeNdSqiY3Uv") // From CSV line 2
-                .gatewayTransactionId("pay_jEveHwusAVE3qv")
-                .amount(new BigDecimal("1983.00")) // 198300 paise
-                .currency("INR")
-                .gateway("RAZORPAY")
-                .status("INITIATED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-        
-        LedgerTransaction tx2 = LedgerTransaction.builder()
-                .internalOrderId("order_hxEykCpZj6R5aD") // From CSV line 3
-                .gatewayTransactionId("pay_a8mRVtLLCWPgEu")
-                .amount(new BigDecimal("7999.00")) // 799900 paise
-                .currency("INR")
-                .gateway("RAZORPAY")
-                .status("INITIATED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-                
-        ledgerTransactionRepository.saveAll(List.of(tx1, tx2));
-        log.info("Seeded 2 real ledger transactions that will perfectly match the razorpay_recon.csv.");
+        log.info("Ledger data seeding removed as it will be provided via file upload.");
     }
 }

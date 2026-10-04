@@ -26,6 +26,18 @@ export default function JobsPage() {
 
   useEffect(() => {
     fetchJobs()
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'
+    const eventSource = new EventSource(`${apiUrl}/jobs/stream`)
+    
+    eventSource.addEventListener('job_event', (event) => {
+      console.log('Received job event:', event.data)
+      fetchJobs() // Auto refresh when a job finishes
+    })
+
+    return () => {
+      eventSource.close()
+    }
   }, [])
 
   const getStatusColor = (status: string) => {

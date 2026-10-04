@@ -29,6 +29,7 @@ public class PhonepeAdapter implements GatewayFileAdapter {
 
         String settlementId = mapper.get(headerMap, row, "bankreferenceno");
         record.setSettlementId(settlementId);
+        record.setBankTransferRef(settlementId); // PhonePe uses the same for UTR
 
         String amountStr = mapper.get(headerMap, row, "amount");
         if (amountStr != null && !amountStr.isEmpty()) {

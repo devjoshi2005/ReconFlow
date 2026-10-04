@@ -160,6 +160,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                     .netAmount(record.getAmount()
                             .subtract(record.getFee() != null ? record.getFee() : java.math.BigDecimal.ZERO)
                             .subtract(record.getTax() != null ? record.getTax() : java.math.BigDecimal.ZERO))
+                    .bankTransferRef(record.getBankTransferRef())
                     .settlementDate(record.getTransactionDate().toLocalDate())
                     .build();
                 
