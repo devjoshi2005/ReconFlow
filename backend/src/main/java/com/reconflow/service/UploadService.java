@@ -64,7 +64,7 @@ public class UploadService {
     }
 
     @Transactional
-    public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate) throws Exception {
+    public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate, String minAmount, String maxAmount) throws Exception {
         // Rate Limiting (Capacity: 10, Refill: 0.5 per sec)
         String userId = "system"; // Mocking user for now, in real scenario fetch from SecurityContext
         List<Long> result = redisTemplate.execute(
@@ -75,6 +75,60 @@ public class UploadService {
         
         if (result != null && result.get(0) == 0L) {
             throw new RuntimeException("Rate limit exceeded. Please try again later.");
+        }
+
+        // LAYER 1: Synchronous CSV Validation (Header Only)
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(file.getInputStream()))) {
+            String headerLine = reader.readLine();
+            if (headerLine == null || headerLine.trim().isEmpty()) {
+                throw new IllegalArgumentException("File is empty or missing headers.");
+            }
+            if (headerLine.startsWith("\uFEFF")) {
+                headerLine = headerLine.substring(1);
+            }
+            
+            String[] headers = headerLine.split(",");
+            java.util.Map<String, Integer> headerMap = new java.util.HashMap<>();
+            java.util.Set<String> fileCols = new java.util.HashSet<>();
+            for (int i = 0; i < headers.length; i++) {
+                String col = headers[i].toLowerCase().trim();
+                headerMap.put(col, i);
+                fileCols.add(col);
+            }
+
+            if ("GATEWAY".equalsIgnoreCase(sourceType)) {
+                // Layer 1: Header Checks
+                java.util.Map<String, java.util.List<String>> requiredColumns = java.util.Map.of(
+                    "RAZORPAY", java.util.List.of("payment_id", "order_id", "amount", "settlement_utr"),
+                    "PHONEPE", java.util.List.of("phonepereferenceid", "merchantreferenceid", "amount", "settlementdate"),
+                    "PAYU", java.util.List.of("paymentid", "orderid", "grossamount", "settlementutr")
+                );
+                
+                String selectedGateway = gateway.toUpperCase();
+                java.util.List<String> required = requiredColumns.get(selectedGateway);
+                if (required == null) {
+                    throw new IllegalArgumentException("Unknown gateway type: " + gateway);
+                }
+                
+                for (String col : required) {
+                    if (!fileCols.contains(col)) {
+                        throw new IllegalArgumentException("Missing required column: '" + col + "'. Please check your CSV format.");
+                    }
+                }
+                
+                // Wrong Gateway Heuristic
+                for (java.util.Map.Entry<String, java.util.List<String>> entry : requiredColumns.entrySet()) {
+                    if (entry.getKey().equals(selectedGateway)) continue;
+                    long matchCount = entry.getValue().stream().filter(fileCols::contains).count();
+                    if (matchCount >= 3) {
+                        throw new IllegalArgumentException("This file looks like a " + entry.getKey() + " file, not " + selectedGateway + ". Did you select the wrong gateway?");
+                    }
+                }
+            } else if ("BANK".equalsIgnoreCase(sourceType)) {
+                if (!headerMap.containsKey("txn_date") || (!headerMap.containsKey("credit") && !headerMap.containsKey("deposit amt."))) {
+                    throw new IllegalArgumentException("Wrong bank statement file! Expected txn_date and credit columns.");
+                }
+            }
         }
 
         String checksum = calculateChecksum(file);
@@ -123,7 +177,7 @@ public class UploadService {
                 @Override
                 public void afterCommit() {
                     try {
-                        String messageBody = String.format("{\"fileId\": \"%s\"}", fileId);
+                        String messageBody = String.format("{\"fileId\": \"%s\", \"minAmount\": \"%s\", \"maxAmount\": \"%s\"}", fileId, minAmount, maxAmount);
                         
                         sqsClient.sendMessage(SendMessageRequest.builder()
                                 .queueUrl(finalQueueUrl)

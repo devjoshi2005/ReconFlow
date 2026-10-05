@@ -51,6 +51,12 @@ public class CsvInMemoryLoader implements StepExecutionListener {
     @Value("#{jobParameters['runId']}")
     private String runIdStr;
 
+    @Value("#{jobParameters['minAmount']}")
+    private String minAmountStr;
+
+    @Value("#{jobParameters['maxAmount']}")
+    private String maxAmountStr;
+
     @Getter
     private final ConcurrentHashMap<String, GatewaySettlementRecord> gatewayRecords = new ConcurrentHashMap<>();
     
@@ -101,6 +107,21 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                         GatewaySettlementRecord record = adapter.parse(headerMap, line, headerMapper);
                         
                         if (record.getGatewayTransactionId() != null) {
+                            if (gatewayRecords.containsKey(record.getGatewayTransactionId())) {
+                                log.warn("Duplicate Gateway ID found in file: {}", record.getGatewayTransactionId());
+                                
+                                UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
+                                ExceptionQueue duplicateException = ExceptionQueue.builder()
+                                        .reconciliationRunId(runId)
+                                        .matchId(UUID.randomUUID())
+                                        .matchType("A")
+                                        .exceptionType("DUPLICATE_SETTLEMENT")
+                                        .discrepancyAmount(record.getAmount())
+                                        .currency("INR")
+                                        .status("OPEN")
+                                        .build();
+                                exceptionQueueRepository.save(duplicateException);
+                            }
                             gatewayRecords.put(record.getGatewayTransactionId(), record);
                         }
                     } catch (Exception e) {
@@ -109,6 +130,30 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                 }
                 csvReader.close();
                 log.info("Loaded {} Gateway rows into HashMap", gatewayRecords.size());
+                
+                if (gatewayRecords.isEmpty()) {
+                    throw new org.springframework.batch.core.step.tasklet.StepExecutionException("0 rows parsed from Gateway CSV. Is the format correct?");
+                }
+                
+                // Layer 3: Post-Parse Data Sanity Checks
+                long negativeAmounts = gatewayRecords.values().stream()
+                        .filter(r -> r.getAmount() != null && r.getAmount().compareTo(java.math.BigDecimal.ZERO) < 0)
+                        .count();
+                if (negativeAmounts > 0) {
+                    log.warn("{} rows have negative amounts. Verifying these are refunds...", negativeAmounts);
+                }
+                
+                java.math.BigDecimal minAmount = minAmountStr != null ? new java.math.BigDecimal(minAmountStr) : new java.math.BigDecimal("0.01");
+                java.math.BigDecimal maxAmount = maxAmountStr != null ? new java.math.BigDecimal(maxAmountStr) : new java.math.BigDecimal("10000000");
+
+                long outliers = gatewayRecords.values().stream()
+                        .filter(r -> r.getAmount() != null && (
+                                r.getAmount().compareTo(minAmount) < 0 || 
+                                r.getAmount().compareTo(maxAmount) > 0)
+                        ).count();
+                if (outliers > 0) {
+                    log.warn("{} rows have amounts outside expected range (₹{} to ₹{}). Check for paise/rupee confusion or malformed data.", outliers, minAmount, maxAmount);
+                }
 
             } else if ("BANK".equalsIgnoreCase(currentFile.getSourceType())) {
                 com.opencsv.bean.CsvToBean<BankStatementRecord> csvToBean = new com.opencsv.bean.CsvToBeanBuilder<BankStatementRecord>(reader)

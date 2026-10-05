@@ -23,7 +23,9 @@ public class UploadController {
             @RequestParam("sourceType") String sourceType,
             @RequestParam(value = "gateway", required = false) String gateway,
             @RequestParam(value = "bankName", required = false) String bankName,
-            @RequestParam("settlementDate") String settlementDateStr) {
+            @RequestParam("settlementDate") String settlementDateStr,
+            @RequestParam(value = "minAmount", defaultValue = "0.01") String minAmount,
+            @RequestParam(value = "maxAmount", defaultValue = "10000000") String maxAmount) {
         
         try {
             if ("LEDGER".equalsIgnoreCase(sourceType)) {
@@ -37,7 +39,7 @@ public class UploadController {
             }
 
             java.time.LocalDate settlementDate = java.time.LocalDate.parse(settlementDateStr);
-            UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName, settlementDate);
+            UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName, settlementDate, minAmount, maxAmount);
             
             boolean counterpartExists = uploadService.checkCounterpartExists(sourceType, settlementDate);
             boolean chainBPending = !counterpartExists;

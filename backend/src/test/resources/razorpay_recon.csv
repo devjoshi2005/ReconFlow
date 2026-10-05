@@ -1,11 +1,6 @@
 entity_id,type,debit,credit,amount,currency,fee,tax,on_hold,settled,created_at,settled_at,settlement_id,settlement_utr,order_id,order_receipt,method,notes,payment_id,dispute_id,description,email,contact
-pay_test001,payment,0,193737,198300,INR,4563,696,false,true,1785727745,1785908220,setl_TEST001,YESBR2026080582882063,order_t001,INV/001,wallet,,pay_test001,,,test1@mail.com,9876543210
-pay_test002,payment,0,799900,799900,INR,0,0,false,true,1785743184,1785908220,setl_TEST001,YESBR2026080582882063,order_t002,INV/002,upi,,pay_test002,,,test2@mail.com,9876543211
-pay_test003,payment,0,799900,799900,INR,0,0,false,true,1785743983,1785908220,setl_TEST001,YESBR2026080582882063,order_t003,INV/003,upi,,pay_test003,,,test3@mail.com,9876543212
-pay_test004,payment,0,48820,50000,INR,1000,180,false,true,1785750000,1785908220,setl_TEST001,YESBR2026080582882063,order_t004,INV/004,card,,pay_test004,,,test4@mail.com,9876543213
-pay_test005,payment,0,24410,25000,INR,500,90,false,true,1785755000,1785908220,setl_TEST001,YESBR2026080582882063,order_t005,INV/005,card,,pay_test005,,,test5@mail.com,9876543214   
-
-
-
+RZ-1,payment,0,300000,300000,INR,3000,540,0,300000,1780000000,1780000000,ST-RZ,UTR20261005RZPY,ORD-RZ-1,receipt1,upi,,pay_RZ1,,,user@example.com,9999999999
+RZ-2,payment,0,70000,70000,INR,700,126,0,70000,1780000000,1780000000,ST-RZ,UTR20261005RZPY,ORD-RZ-2,receipt2,upi,,pay_RZ2,,,user@example.com,9999999999
+RZ-4,payment,0,55000,55000,INR,550,99,0,55000,1780000000,1780000000,ST-RZ,UTR20261005RZPY,ORD-RZ-4,receipt4,upi,,pay_RZ4,,,user@example.com,9999999999
 
 

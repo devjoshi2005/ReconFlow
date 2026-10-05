@@ -74,7 +74,7 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
                         .subtract(gatewayRecord.getFee() != null ? gatewayRecord.getFee() : BigDecimal.ZERO)
                         .subtract(gatewayRecord.getTax() != null ? gatewayRecord.getTax() : BigDecimal.ZERO))
                 .bankTransferRef(gatewayRecord.getBankTransferRef())
-                .settlementDate(gatewayRecord.getTransactionDate().toLocalDate())
+                .settlementDate(csvInMemoryLoader.getCurrentFile().getSettlementDate() != null ? csvInMemoryLoader.getCurrentFile().getSettlementDate() : gatewayRecord.getTransactionDate().toLocalDate())
                 .build();
 
         // Compare Amounts

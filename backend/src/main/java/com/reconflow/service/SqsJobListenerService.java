@@ -91,6 +91,8 @@ public class SqsJobListenerService {
                         JobParameters params = new JobParametersBuilder()
                                 .addString("runId", runIdStr)
                                 .addString("uploadedFileId", uploadedFile.getId().toString())
+                                .addString("minAmount", json.has("minAmount") ? json.get("minAmount").asText() : "0.01")
+                                .addString("maxAmount", json.has("maxAmount") ? json.get("maxAmount").asText() : "10000000")
                                 .addLong("time", System.currentTimeMillis())
                                 .toJobParameters();
                         
