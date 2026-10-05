@@ -69,7 +69,8 @@ class UploadServiceTest {
     @Test
     void testProcessUpload_Success() throws Exception {
         // Arrange
-        MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", "test data".getBytes());
+        String validCsv = "payment_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
+        MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", validCsv.getBytes());
         
         when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -83,7 +84,7 @@ class UploadServiceTest {
         when(uploadedFileRepository.save(any(UploadedFile.class))).thenReturn(savedFile);
         
         // Act
-        UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now());
+        UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now(), "0.01", "10000000");
 
         // Run afterCommit hooks manually for testing
         TransactionSynchronizationManager.getSynchronizations().forEach(sync -> sync.afterCommit());
@@ -99,7 +100,8 @@ class UploadServiceTest {
     @Test
     void testProcessUpload_DuplicateChecksum() throws Exception {
         // Arrange
-        MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", "test data".getBytes());
+        String validCsv = "payment_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
+        MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", validCsv.getBytes());
         when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(anyString(), anyString(), any())).thenReturn(true);
@@ -107,7 +109,7 @@ class UploadServiceTest {
 
         // Act & Assert
         assertThrows(IllegalArgumentException.class, () -> {
-            uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now());
+            uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now(), "0.01", "10000000");
         });
 
         verify(s3Client, never()).putObject(any(PutObjectRequest.class), any(software.amazon.awssdk.core.sync.RequestBody.class));

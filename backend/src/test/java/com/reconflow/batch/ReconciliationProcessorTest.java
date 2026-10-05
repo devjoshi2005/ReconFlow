@@ -72,7 +72,7 @@ class ReconciliationProcessorTest {
         assertThat(result.getGatewaySettlement().getGatewayTransactionId()).isEqualTo("pay_123");
         
         assertThat(result.getMatchedLedgerTransaction()).isNotNull();
-        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("MATCHED");
+        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("RECONCILED");
         assertThat(gatewayRecords).isEmpty(); // It should be removed from the map
     }
 
@@ -96,7 +96,7 @@ class ReconciliationProcessorTest {
         assertThat(result.hasException()).isTrue();
         assertThat(result.getException().getExceptionType()).isEqualTo("MISSING_IN_GATEWAY");
         assertThat(result.getException().getDiscrepancyAmount()).isEqualByComparingTo(new BigDecimal("100.00"));
-        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("EXCEPTION"); 
+        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("UNRECONCILED"); 
     }
 
     @Test
@@ -132,6 +132,6 @@ class ReconciliationProcessorTest {
         assertThat(result.getException().getDiscrepancyAmount()).isEqualByComparingTo(new BigDecimal("10.00"));
         
         assertThat(result.getMatchedLedgerTransaction()).isNotNull();
-        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("EXCEPTION");
+        assertThat(result.getMatchedLedgerTransaction().getStatus()).isEqualTo("UNRECONCILED");
     }
 }

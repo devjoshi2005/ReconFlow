@@ -75,6 +75,19 @@ public class SqsJobListenerService {
                         // Determine Job based on SourceType
                         Job jobToRun = "BANK".equalsIgnoreCase(uploadedFile.getSourceType()) ? bankReconciliationJob : gatewayReconciliationJob;
                         
+                        if ("BANK".equalsIgnoreCase(uploadedFile.getSourceType())) {
+                            boolean pendingGateways = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatusIn(
+                                    "GATEWAY", uploadedFile.getSettlementDate(), java.util.Arrays.asList("QUEUED", "PROCESSING")
+                            );
+                            if (pendingGateways) {
+                                log.info("Delaying BANK file {} processing. GATEWAY files are still QUEUED or PROCESSING for date {}", fileId, uploadedFile.getSettlementDate());
+                                uploadedFile.setStatus("QUEUED");
+                                uploadedFileRepository.save(uploadedFile);
+                                // Skip processing, don't delete message. It will reappear in SQS after visibility timeout.
+                                continue;
+                            }
+                        }
+
                         java.time.LocalDate today = java.time.LocalDate.now();
                         com.reconflow.entity.ReconciliationRun run = reconciliationRunRepository.findByRunDate(today)
                                 .orElseGet(() -> {

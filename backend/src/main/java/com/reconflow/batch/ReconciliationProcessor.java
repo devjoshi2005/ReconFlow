@@ -41,23 +41,10 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
         GatewaySettlementRecord gatewayRecord = csvInMemoryLoader.getGatewayRecords().remove(ledger.getGatewayTransactionId());
 
         if (gatewayRecord == null) {
-            // Found in Ledger, but not in the Gateway CSV -> MISSING_IN_GATEWAY
-            ExceptionQueue exception = ExceptionQueue.builder()
-                    .reconciliationRunId(runId)
-                    .matchId(ledger.getId())
-                    .matchType("A")
-                    .exceptionType("MISSING_IN_GATEWAY")
-                    .discrepancyAmount(ledger.getAmount())
-                    .currency(ledger.getCurrency())
-                    .status("OPEN")
-                    .build();
-
-            ledger.setStatus("UNRECONCILED");
-
-            return ReconciliationResult.builder()
-                    .matchedLedgerTransaction(ledger)
-                    .exception(exception)
-                    .build();
+            // Found in Ledger, but not in the Gateway CSV. 
+            // We do NOT throw an exception here because it might be settled in tomorrow's CSV.
+            // Returning null tells Spring Batch to skip this item, leaving it in PENDING state.
+            return null;
         }
 
         // We found a match in the CSV, let's map it to an Entity

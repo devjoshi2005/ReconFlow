@@ -46,7 +46,7 @@ public class UploadControllerIntegrationTest {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         
         // Use a unique file content to avoid SHA-256 conflict on reruns
-        String fileContent = "id,amount,date\n1,100.00," + System.currentTimeMillis();
+        String fileContent = "payment_id,order_id,amount,settlement_utr\n" + System.currentTimeMillis() + ",order_1,100,utr_1";
         ByteArrayResource fileAsResource = new ByteArrayResource(fileContent.getBytes()) {
             @Override
             public String getFilename() {

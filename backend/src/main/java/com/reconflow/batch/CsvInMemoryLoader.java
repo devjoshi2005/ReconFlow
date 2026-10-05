@@ -111,7 +111,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                                 log.warn("Duplicate Gateway ID found in file: {}", record.getGatewayTransactionId());
                                 
                                 UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
-                                ExceptionQueue duplicateException = ExceptionQueue.builder()
+                                com.reconflow.entity.ExceptionQueue duplicateException = com.reconflow.entity.ExceptionQueue.builder()
                                         .reconciliationRunId(runId)
                                         .matchId(UUID.randomUUID())
                                         .matchType("A")
@@ -132,7 +132,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                 log.info("Loaded {} Gateway rows into HashMap", gatewayRecords.size());
                 
                 if (gatewayRecords.isEmpty()) {
-                    throw new org.springframework.batch.core.step.tasklet.StepExecutionException("0 rows parsed from Gateway CSV. Is the format correct?");
+                    throw new RuntimeException("0 rows parsed from Gateway CSV. Is the format correct?");
                 }
                 
                 // Layer 3: Post-Parse Data Sanity Checks

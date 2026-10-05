@@ -6,6 +6,7 @@ import com.reconflow.repository.ExceptionQueueRepository;
 import com.reconflow.repository.GatewaySettlementRepository;
 import com.reconflow.repository.LedgerTransactionRepository;
 import com.reconflow.repository.UploadedFileRepository;
+import com.reconflow.repository.ChainAMatchRepository;
 import com.reconflow.service.SqsJobListenerService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,9 @@ public class ReconciliationE2ETest {
     private UploadedFileRepository fileRepo;
 
     @Autowired
+    private ChainAMatchRepository chainAMatchRepo;
+
+    @Autowired
     private SqsJobListenerService sqsJobListenerService;
 
     @Autowired
@@ -85,6 +89,7 @@ public class ReconciliationE2ETest {
     @AfterEach
     void tearDown() {
         // Clean up everything to leave the DB untouched
+        chainAMatchRepo.deleteAll();
         if (testLedgerId != null) {
             ledgerRepo.deleteById(testLedgerId);
         }
@@ -103,7 +108,7 @@ public class ReconciliationE2ETest {
     @Test
     void testFullReconciliationPipeline() throws InterruptedException {
         // 1. Prepare Mock CSV
-        String csvContent = "phonepereferenceid,merchantreferenceid,amount,fee,igst,cgst,sgst,bankreferenceno,creationdate\n" +
+        String csvContent = "phonepereferenceid,merchantreferenceid,amount,fee,igst,cgst,sgst,bankreferenceno,settlementdate\n" +
                 testTxnId + ",ORDER-1,500.00,0.00,0.00,0.00,0.00,UTR_123,01/10/2026";
 
         HttpHeaders headers = new HttpHeaders();

@@ -72,7 +72,7 @@ public class UploadE2ETest {
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        String testContent = "id,amount,status\nTXN-001,500,SUCCESS\n" + System.currentTimeMillis();
+        String testContent = "PhonePeReferenceId,MerchantReferenceId,Amount,SettlementDate\nTXN-001,merch-1,500.00,2026-09-28\n" + System.currentTimeMillis();
         
         ByteArrayResource fileAsResource = new ByteArrayResource(testContent.getBytes()) {
             @Override
