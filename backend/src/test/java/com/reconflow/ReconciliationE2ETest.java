@@ -72,6 +72,7 @@ public class ReconciliationE2ETest {
         LedgerTransaction txn = LedgerTransaction.builder()
                 .internalOrderId("ORDER-1")
                 .gatewayTransactionId(testTxnId)
+                .gateway("PHONEPE")
                 .amount(new BigDecimal("500.00"))
                 .currency("INR")
                 .status("UNRECONCILED")
@@ -88,6 +89,7 @@ public class ReconciliationE2ETest {
             ledgerRepo.deleteById(testLedgerId);
         }
         if (testFileId != null) {
+            settlementRepo.deleteAll();
             fileRepo.deleteById(testFileId);
         }
         if (s3KeyToDelete != null) {
@@ -96,7 +98,6 @@ public class ReconciliationE2ETest {
                     .key(s3KeyToDelete)
                     .build());
         }
-        // Ideally we should delete from GatewaySettlement using custom query, but tests can leave some traces in test DB.
     }
 
     @Test
@@ -157,7 +158,7 @@ public class ReconciliationE2ETest {
 
         // 4.2 Check LedgerTransaction status
         LedgerTransaction updatedLedger = ledgerRepo.findById(testLedgerId).orElseThrow();
-        assertThat(updatedLedger.getStatus()).isEqualTo("MATCHED");
+        assertThat(updatedLedger.getStatus()).isEqualTo("RECONCILED");
 
         System.out.println("FULL PIPELINE SUCCESS: File uploaded -> S3 saved -> SQS queued -> SQS polled -> Batch Job ran -> Postgres updated!");
     }

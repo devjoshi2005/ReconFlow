@@ -14,7 +14,7 @@ public class UpayAdapter implements GatewayFileAdapter {
 
     @Override
     public String getGatewayName() {
-        return "UPAY"; // Also handles PAYU logically in the application
+        return "PAYU"; // The frontend sends PAYU, so we must match it
     }
 
     @Override
@@ -42,7 +42,9 @@ public class UpayAdapter implements GatewayFileAdapter {
             record.setTax(new BigDecimal(taxStr).abs());
         }
 
-        record.setSettlementId(mapper.get(headerMap, row, "settlementutr"));
+        String settlementId = mapper.get(headerMap, row, "settlementutr");
+        record.setSettlementId(settlementId);
+        record.setBankTransferRef(settlementId);
         
         String dateStr = mapper.get(headerMap, row, "transactiondate");
         if (dateStr != null && !dateStr.isEmpty()) {

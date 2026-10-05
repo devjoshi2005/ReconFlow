@@ -71,7 +71,7 @@ public class AnalyticsService {
 
         double razorpayRate = calculateRate(totalsByGw, matchedByGw, "RAZORPAY");
         double phonepeRate = calculateRate(totalsByGw, matchedByGw, "PHONEPE");
-        double upayRate = calculateRate(totalsByGw, matchedByGw, "UPAY");
+        double upayRate = calculateRate(totalsByGw, matchedByGw, "PAYU");
 
         Double avgDays = exceptionRepo.avgResolutionTimeDays();
         String topGateway = exceptionRepo.topExceptionGateway();

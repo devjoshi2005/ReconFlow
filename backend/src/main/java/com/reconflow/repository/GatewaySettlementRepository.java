@@ -6,6 +6,10 @@ import org.springframework.stereotype.Repository;
 
 import java.util.UUID;
 
+import java.util.List;
+
 @Repository
 public interface GatewaySettlementRepository extends JpaRepository<GatewaySettlement, UUID> {
+    List<GatewaySettlement> findByGateway(String gateway);
+    List<GatewaySettlement> findBySettlementDate(java.time.LocalDate settlementDate);
 }

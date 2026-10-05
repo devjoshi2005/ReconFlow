@@ -61,6 +61,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
     private UploadedFile currentFile;
 
     @Override
+    @org.springframework.batch.core.annotation.BeforeStep
     public void beforeStep(StepExecution stepExecution) {
         if (uploadedFileIdStr == null) {
             throw new IllegalArgumentException("uploadedFileId job parameter is missing");
@@ -86,10 +87,9 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                 java.util.Map<String, Integer> headerMap = headerMapper.buildHeaderIndex(headers);
 
                 String gateway = currentFile.getGateway().toUpperCase();
-                String gatewayToFind = ("PAYU".equals(gateway)) ? "UPAY" : gateway;
 
                 GatewayFileAdapter adapter = adapters.stream()
-                        .filter(a -> a.getGatewayName().equals(gatewayToFind))
+                        .filter(a -> a.getGatewayName().toUpperCase().equals(gateway))
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("No adapter found for gateway: " + gateway));
 
@@ -137,7 +137,9 @@ public class CsvInMemoryLoader implements StepExecutionListener {
     }
 
     @Override
+    @org.springframework.batch.core.annotation.AfterStep
     public ExitStatus afterStep(StepExecution stepExecution) {
+        log.info("=== @AfterStep CALLED. Map remaining: {} ===", gatewayRecords.size());
         if ("GATEWAY".equalsIgnoreCase(currentFile.getSourceType()) && !gatewayRecords.isEmpty()) {
             log.warn("Found {} Gateway settlements with no matching Ledger transaction (MISSING_IN_LEDGER).", gatewayRecords.size());
             UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
@@ -161,7 +163,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                             .subtract(record.getFee() != null ? record.getFee() : java.math.BigDecimal.ZERO)
                             .subtract(record.getTax() != null ? record.getTax() : java.math.BigDecimal.ZERO))
                     .bankTransferRef(record.getBankTransferRef())
-                    .settlementDate(record.getTransactionDate().toLocalDate())
+                    .settlementDate(currentFile.getSettlementDate() != null ? currentFile.getSettlementDate() : record.getTransactionDate().toLocalDate())
                     .build();
                 
                 settlements.add(settlement);

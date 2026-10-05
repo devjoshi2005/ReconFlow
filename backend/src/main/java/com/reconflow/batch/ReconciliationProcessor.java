@@ -32,6 +32,9 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
 
     @Override
     public ReconciliationResult process(LedgerTransaction ledger) {
+        log.info("Chain A processing: id={}, amount={}, gatewayTxnId={}", 
+            ledger.getId(), ledger.getAmount(), ledger.getGatewayTransactionId());
+        
         UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
         
         // O(1) Map Lookup from the in-memory CSV map

@@ -95,6 +95,22 @@ export default function UploadPage() {
     let hasSuccess = false
 
     try {
+      // 1. LEDGER FIRST
+      if (ledgerFile) {
+        try {
+          const res = await uploadSingleFile(ledgerFile, 'LEDGER')
+          hasSuccess = true
+          newMessages.push({ type: 'success', text: res.message || `Ledger uploaded successfully.` })
+          setLedgerFile(null)
+          // Wait 2 seconds for DB persistence
+          await new Promise(r => setTimeout(r, 2000))
+        } catch (e: any) {
+          hasError = true
+          newMessages.push({ type: 'error', text: `Ledger upload failed: ${e.message}` })
+        }
+      }
+
+      // 2. GATEWAY SECOND
       if (gatewayFile) {
         try {
           const res = await uploadSingleFile(gatewayFile, 'GATEWAY')
@@ -105,12 +121,15 @@ export default function UploadPage() {
             newMessages.push({ type: 'success', text: `Gateway file uploaded successfully.` })
           }
           setGatewayFile(null)
+          // Wait 2 seconds for Chain A to complete
+          await new Promise(r => setTimeout(r, 2000))
         } catch (e: any) {
           hasError = true
           newMessages.push({ type: 'error', text: `Gateway upload failed: ${e.message}` })
         }
       }
 
+      // 3. BANK STATEMENT LAST
       if (bankFile) {
         try {
           const res = await uploadSingleFile(bankFile, 'BANK')
@@ -124,18 +143,6 @@ export default function UploadPage() {
         } catch (e: any) {
           hasError = true
           newMessages.push({ type: 'error', text: `Bank statement upload failed: ${e.message}` })
-        }
-      }
-
-      if (ledgerFile) {
-        try {
-          const res = await uploadSingleFile(ledgerFile, 'LEDGER')
-          hasSuccess = true
-          newMessages.push({ type: 'success', text: res.message || `Ledger uploaded successfully.` })
-          setLedgerFile(null)
-        } catch (e: any) {
-          hasError = true
-          newMessages.push({ type: 'error', text: `Ledger upload failed: ${e.message}` })
         }
       }
 

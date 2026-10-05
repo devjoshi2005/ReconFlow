@@ -43,10 +43,10 @@ public class ChainBTasklet implements Tasklet {
         Map<String, BankStatementRecord> bankRecords = csvInMemoryLoader.getBankRecords();
         log.info("Starting Chain B Tasklet. {} Bank Records loaded.", bankRecords.size());
 
-        // We fetch all GatewaySettlements that have a UTR (bankTransferRef) but are not yet matched in Chain B.
-        // For simplicity in this mock, we just group all Gateway Settlements by UTR.
-        // Realistically, we'd only query those where chainBMatched = false.
-        List<GatewaySettlement> allSettlements = gatewaySettlementRepository.findAll();
+        // We fetch all GatewaySettlements that belong to this gateway and have a UTR (bankTransferRef) but are not yet matched in Chain B.
+        // For simplicity in this mock, we group them all. Realistically we'd only query chainBMatched = false.
+        java.time.LocalDate currentDate = csvInMemoryLoader.getCurrentFile().getSettlementDate();
+        List<GatewaySettlement> allSettlements = gatewaySettlementRepository.findBySettlementDate(currentDate);
         
         Map<String, List<GatewaySettlement>> groupedByUtr = allSettlements.stream()
                 .filter(gs -> gs.getBankTransferRef() != null && !gs.getBankTransferRef().isEmpty())
