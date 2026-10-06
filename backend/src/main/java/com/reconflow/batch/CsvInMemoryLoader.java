@@ -107,6 +107,10 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                         GatewaySettlementRecord record = adapter.parse(headerMap, line, headerMapper);
                         
                         if (record.getGatewayTransactionId() != null) {
+                            record.setGatewayTransactionId(sanitizeAndTruncate(record.getGatewayTransactionId(), 100));
+                            if (record.getOrderId() != null) record.setOrderId(sanitizeAndTruncate(record.getOrderId(), 100));
+                            if (record.getBankTransferRef() != null) record.setBankTransferRef(sanitizeAndTruncate(record.getBankTransferRef(), 100));
+                            
                             if (gatewayRecords.containsKey(record.getGatewayTransactionId())) {
                                 log.warn("Duplicate Gateway ID found in file: {}", record.getGatewayTransactionId());
                                 
@@ -165,6 +169,10 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                 java.util.List<BankStatementRecord> records = csvToBean.parse();
                 for (BankStatementRecord record : records) {
                     record.setBankName(currentFile.getBankName()); // Enrich
+                    
+                    if (record.getUtr() != null) record.setUtr(sanitizeAndTruncate(record.getUtr(), 100));
+                    if (record.getNarration() != null) record.setNarration(sanitizeAndTruncate(record.getNarration(), 500));
+                    
                     bankRecords.put(record.getUtr(), record);
                 }
                 log.info("Loaded {} Bank Statement rows into HashMap", bankRecords.size());
@@ -179,6 +187,18 @@ public class CsvInMemoryLoader implements StepExecutionListener {
             } catch (Exception ex) {}
             throw new RuntimeException("Failed to load CSV", e);
         }
+    }
+
+    private String sanitizeAndTruncate(String value, int maxLength) {
+        if (value == null) return null;
+        value = value.trim();
+        if (value.matches("^[=+\\-@].*")) {
+            value = value.substring(1);
+        }
+        if (value.length() > maxLength) {
+            value = value.substring(0, maxLength);
+        }
+        return value;
     }
 
     @Override

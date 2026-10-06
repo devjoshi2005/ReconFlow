@@ -147,7 +147,13 @@ public class UploadService {
             throw new IllegalArgumentException("File with this checksum has already been uploaded.");
         }
 
-        String s3Key = "uploads/" + UUID.randomUUID() + "-" + file.getOriginalFilename();
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename != null && originalFilename.contains("..")) {
+            throw new IllegalArgumentException("Invalid filename. Path traversal attempt detected.");
+        }
+        String sanitizedFilename = originalFilename != null ? originalFilename.replaceAll("[^a-zA-Z0-9.-]", "_") : "upload-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0,8) + ".csv";
+
+        String s3Key = "uploads/" + UUID.randomUUID() + "-" + sanitizedFilename;
 
         // 1. Upload to S3
         s3Client.putObject(PutObjectRequest.builder()
@@ -157,7 +163,7 @@ public class UploadService {
 
         // 2. Save DB Record
         UploadedFile uploadedFile = UploadedFile.builder()
-                .fileName(file.getOriginalFilename())
+                .fileName(sanitizedFilename)
                 .s3Key(s3Key)
                 .fileChecksum(checksum)
                 .sourceType(sourceType)
@@ -229,9 +235,17 @@ public class UploadService {
                 if (line.trim().isEmpty()) continue;
                 String[] parts = line.split(",");
                 if (parts.length >= 6) {
+                    String internalOrderId = parts[0].trim();
+                    if (internalOrderId.matches("^[=+\\-@].*")) internalOrderId = internalOrderId.substring(1);
+                    if (internalOrderId.length() > 100) internalOrderId = internalOrderId.substring(0, 100);
+
+                    String gatewayTxId = parts[1].trim();
+                    if (gatewayTxId.matches("^[=+\\-@].*")) gatewayTxId = gatewayTxId.substring(1);
+                    if (gatewayTxId.length() > 100) gatewayTxId = gatewayTxId.substring(0, 100);
+
                     batch.add(com.reconflow.entity.LedgerTransaction.builder()
-                            .internalOrderId(parts[0].trim())
-                            .gatewayTransactionId(parts[1].trim())
+                            .internalOrderId(internalOrderId)
+                            .gatewayTransactionId(gatewayTxId)
                             .amount(new java.math.BigDecimal(parts[2].trim()).divide(new java.math.BigDecimal("100")))
                             .currency(parts[3].trim())
                             .gateway(parts[4].trim())
@@ -260,8 +274,14 @@ public class UploadService {
             rowCount += toSave.size();
         }
 
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename != null && originalFilename.contains("..")) {
+            throw new IllegalArgumentException("Invalid filename. Path traversal attempt detected.");
+        }
+        String sanitizedFilename = originalFilename != null ? originalFilename.replaceAll("[^a-zA-Z0-9.-]", "_") : "upload-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0,8) + ".csv";
+
         UploadedFile uploadedFile = UploadedFile.builder()
-                .fileName(file.getOriginalFilename())
+                .fileName(sanitizedFilename)
                 .s3Key("DIRECT_DB_UPLOAD") // No S3
                 .fileChecksum(checksum)
                 .sourceType("LEDGER")
