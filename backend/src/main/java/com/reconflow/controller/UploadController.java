@@ -28,8 +28,9 @@ public class UploadController {
             @RequestParam(value = "maxAmount", defaultValue = "10000000") String maxAmount) {
         
         try {
+            java.time.LocalDate settlementDate = java.time.LocalDate.parse(settlementDateStr);
             if ("LEDGER".equalsIgnoreCase(sourceType)) {
-                UploadedFile uploadedFile = uploadService.processLedgerUpload(file, gateway);
+                UploadedFile uploadedFile = uploadService.processLedgerUpload(file, gateway, settlementDate);
                 return ResponseEntity.status(201).body(Map.of(
                         "message", "Ledger file uploaded and processed directly to DB.",
                         "fileId", uploadedFile.getId(),
@@ -37,8 +38,6 @@ public class UploadController {
                         "chainBPending", false
                 ));
             }
-
-            java.time.LocalDate settlementDate = java.time.LocalDate.parse(settlementDateStr);
             UploadedFile uploadedFile = uploadService.processUpload(file, sourceType, gateway, bankName, settlementDate, minAmount, maxAmount);
             
             boolean counterpartExists = uploadService.checkCounterpartExists(sourceType, settlementDate);

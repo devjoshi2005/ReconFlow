@@ -12,7 +12,10 @@ public interface UploadedFileRepository extends JpaRepository<UploadedFile, UUID
     boolean existsByFileChecksum(String fileChecksum);
     boolean existsBySourceTypeAndSettlementDate(String sourceType, java.time.LocalDate settlementDate);
     boolean existsBySourceTypeAndSettlementDateAndStatusIn(String sourceType, java.time.LocalDate settlementDate, List<String> statuses);
+    boolean existsBySourceTypeAndSettlementDateAndStatus(String sourceType, java.time.LocalDate settlementDate, String status);
+    boolean existsBySourceTypeAndGatewayAndSettlementDateAndStatus(String sourceType, String gateway, java.time.LocalDate settlementDate, String status);
     long countByStatusIn(List<String> statuses);
 
     List<UploadedFile> findAllByOrderByCreatedAtDesc();
+    List<UploadedFile> findByStatus(String status);
 }

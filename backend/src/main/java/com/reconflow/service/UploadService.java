@@ -99,7 +99,7 @@ public class UploadService {
             if ("GATEWAY".equalsIgnoreCase(sourceType)) {
                 // Layer 1: Header Checks
                 java.util.Map<String, java.util.List<String>> requiredColumns = java.util.Map.of(
-                    "RAZORPAY", java.util.List.of("payment_id", "order_id", "amount", "settlement_utr"),
+                    "RAZORPAY", java.util.List.of("entity_id", "order_id", "amount", "settlement_utr"),
                     "PHONEPE", java.util.List.of("phonepereferenceid", "merchantreferenceid", "amount", "settlementdate"),
                     "PAYU", java.util.List.of("paymentid", "orderid", "grossamount", "settlementutr")
                 );
@@ -201,7 +201,7 @@ public class UploadService {
     }
 
     @Transactional
-    public UploadedFile processLedgerUpload(MultipartFile file, String gateway) throws Exception {
+    public UploadedFile processLedgerUpload(MultipartFile file, String gateway, java.time.LocalDate settlementDate) throws Exception {
         String userId = "system"; 
         List<Long> result = redisTemplate.execute(
                 rateLimitScript,
@@ -230,29 +230,50 @@ public class UploadService {
         int rowCount = 0;
 
         try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(file.getInputStream()))) {
-            String line = reader.readLine(); // Skip header
+            String headerLine = reader.readLine(); // Skip header
+            if (headerLine != null && headerLine.startsWith("\uFEFF")) {
+                headerLine = headerLine.substring(1);
+            }
+            String[] headers = headerLine != null ? headerLine.split(",") : new String[0];
+            java.util.Map<String, Integer> headerMap = new java.util.HashMap<>();
+            for (int i = 0; i < headers.length; i++) {
+                headerMap.put(headers[i].trim().toLowerCase(), i);
+            }
+
+            String line;
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
-                String[] parts = line.split(",");
-                if (parts.length >= 6) {
-                    String internalOrderId = parts[0].trim();
-                    if (internalOrderId.matches("^[=+\\-@].*")) internalOrderId = internalOrderId.substring(1);
-                    if (internalOrderId.length() > 100) internalOrderId = internalOrderId.substring(0, 100);
+                String[] parts = line.split(",", -1);
+                
+                java.util.function.Function<String, String> getCol = (colName) -> {
+                    Integer idx = headerMap.get(colName);
+                    return (idx != null && idx < parts.length) ? parts[idx].trim() : "";
+                };
 
-                    String gatewayTxId = parts[1].trim();
-                    if (gatewayTxId.matches("^[=+\\-@].*")) gatewayTxId = gatewayTxId.substring(1);
-                    if (gatewayTxId.length() > 100) gatewayTxId = gatewayTxId.substring(0, 100);
+                String internalOrderId = getCol.apply("internal_order_id");
+                if (internalOrderId.matches("^[=+\\-@].*")) internalOrderId = internalOrderId.substring(1);
+                if (internalOrderId.length() > 100) internalOrderId = internalOrderId.substring(0, 100);
 
-                    batch.add(com.reconflow.entity.LedgerTransaction.builder()
-                            .internalOrderId(internalOrderId)
-                            .gatewayTransactionId(gatewayTxId)
-                            .amount(new java.math.BigDecimal(parts[2].trim()).divide(new java.math.BigDecimal("100")))
-                            .currency(parts[3].trim())
-                            .gateway(parts[4].trim())
-                            .status("PENDING")
-                            .transactionDate(java.time.ZonedDateTime.parse(parts[5].trim() + "T00:00:00Z")) // Basic parsing
-                            .build());
-                }
+                String gatewayTxId = getCol.apply("gateway_transaction_id");
+                if (gatewayTxId.matches("^[=+\\-@].*")) gatewayTxId = gatewayTxId.substring(1);
+                if (gatewayTxId.length() > 100) gatewayTxId = gatewayTxId.substring(0, 100);
+
+                String amountStr = getCol.apply("amount");
+                String currencyStr = getCol.apply("currency");
+                String gatewayStr = getCol.apply("gateway");
+                String dateStr = getCol.apply("transaction_date");
+                
+                if (amountStr.isEmpty() || dateStr.isEmpty()) continue;
+
+                batch.add(com.reconflow.entity.LedgerTransaction.builder()
+                        .internalOrderId(internalOrderId)
+                        .gatewayTransactionId(gatewayTxId)
+                        .amount(new java.math.BigDecimal(amountStr).divide(new java.math.BigDecimal("100")))
+                        .currency(currencyStr)
+                        .gateway(gatewayStr)
+                        .status("PENDING")
+                        .transactionDate(java.time.ZonedDateTime.parse(dateStr + "T00:00:00Z")) // Basic parsing
+                        .build());
             }
         } catch (Exception e) {
             redisTemplate.delete(idempotencyKey);
@@ -286,7 +307,8 @@ public class UploadService {
                 .fileChecksum(checksum)
                 .sourceType("LEDGER")
                 .gateway(gateway)
-                .status("COMPLETED") // Skipped queue entirely
+                .settlementDate(settlementDate)
+                .status("COMPLETED")
                 .build();
         
         uploadedFile = uploadedFileRepository.save(uploadedFile);

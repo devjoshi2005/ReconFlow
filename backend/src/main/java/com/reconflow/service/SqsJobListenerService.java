@@ -13,10 +13,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
-import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityRequest;
 
 import java.util.List;
 import java.util.UUID;
@@ -44,8 +43,12 @@ public class SqsJobListenerService {
     private boolean schedulingEnabled;
 
     @Scheduled(fixedDelay = 10000) // Poll every 10 seconds
-    public void pollMainQueue() {
+    public void scheduledPoll() {
         if (!schedulingEnabled) return;
+        pollMainQueue();
+    }
+
+    public void pollMainQueue() {
         try {
             ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
                     .queueUrl(queueUrl)
@@ -76,14 +79,39 @@ public class SqsJobListenerService {
                         Job jobToRun = "BANK".equalsIgnoreCase(uploadedFile.getSourceType()) ? bankReconciliationJob : gatewayReconciliationJob;
                         
                         if ("BANK".equalsIgnoreCase(uploadedFile.getSourceType())) {
-                            boolean pendingGateways = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatusIn(
-                                    "GATEWAY", uploadedFile.getSettlementDate(), java.util.Arrays.asList("QUEUED", "PROCESSING")
+                            boolean gatewayCompleted = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
+                                    "GATEWAY", uploadedFile.getSettlementDate(), "COMPLETED"
                             );
-                            if (pendingGateways) {
-                                log.info("Delaying BANK file {} processing. GATEWAY files are still QUEUED or PROCESSING for date {}", fileId, uploadedFile.getSettlementDate());
-                                uploadedFile.setStatus("QUEUED");
+                            if (!gatewayCompleted) {
+                                log.info("Delaying BANK file {} processing. GATEWAY file missing or not COMPLETED for date {}", fileId, uploadedFile.getSettlementDate());
+                                uploadedFile.setStatus("PENDING_DEPENDENCY");
                                 uploadedFileRepository.save(uploadedFile);
-                                // Skip processing, don't delete message. It will reappear in SQS after visibility timeout.
+                                try {
+                                    sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                                            .queueUrl(queueUrl)
+                                            .receiptHandle(message.receiptHandle())
+                                            .build());
+                                } catch (Exception e) {
+                                    log.warn("Failed to delete delayed message from SQS: {}", e.getMessage());
+                                }
+                                continue;
+                            }
+                        } else if ("GATEWAY".equalsIgnoreCase(uploadedFile.getSourceType())) {
+                            boolean ledgerCompleted = uploadedFileRepository.existsBySourceTypeAndGatewayAndSettlementDateAndStatus(
+                                    "LEDGER", uploadedFile.getGateway(), uploadedFile.getSettlementDate(), "COMPLETED"
+                            );
+                            if (!ledgerCompleted) {
+                                log.info("Delaying GATEWAY file {} processing. LEDGER file missing for date {}", fileId, uploadedFile.getSettlementDate());
+                                uploadedFile.setStatus("PENDING_DEPENDENCY");
+                                uploadedFileRepository.save(uploadedFile);
+                                try {
+                                    sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                                            .queueUrl(queueUrl)
+                                            .receiptHandle(message.receiptHandle())
+                                            .build());
+                                } catch (Exception e) {
+                                    log.warn("Failed to delete delayed message from SQS: {}", e.getMessage());
+                                }
                                 continue;
                             }
                         }
