@@ -71,8 +71,13 @@ public class ReconciliationPermutationTest {
     private String paymentId;
     private String utr;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @BeforeEach
     void setup() {
+        jdbcTemplate.execute("DELETE FROM chain_b_matches");
+        jdbcTemplate.execute("DELETE FROM chain_a_matches");
         chainAMatchRepo.deleteAll();
         exceptionRepo.deleteAll();
         ledgerRepo.deleteAll();
@@ -81,6 +86,8 @@ public class ReconciliationPermutationTest {
         redisTemplate.delete("upload_rate_limit:LEDGER");
         redisTemplate.delete("upload_rate_limit:GATEWAY");
         redisTemplate.delete("upload_rate_limit:BANK");
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
         
         orderId = "ORD-" + UUID.randomUUID().toString().substring(0, 8);
         paymentId = "pay_" + UUID.randomUUID().toString().substring(0, 8);
@@ -89,6 +96,8 @@ public class ReconciliationPermutationTest {
 
     @AfterEach
     void tearDown() {
+        jdbcTemplate.execute("DELETE FROM chain_b_matches");
+        jdbcTemplate.execute("DELETE FROM chain_a_matches");
         chainAMatchRepo.deleteAll();
         exceptionRepo.deleteAll();
         ledgerRepo.deleteAll();
@@ -97,6 +106,8 @@ public class ReconciliationPermutationTest {
         redisTemplate.delete("upload_rate_limit:LEDGER");
         redisTemplate.delete("upload_rate_limit:GATEWAY");
         redisTemplate.delete("upload_rate_limit:BANK");
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
 
         for (String key : s3KeysToDelete) {
             try {
@@ -133,9 +144,18 @@ public class ReconciliationPermutationTest {
         }
     }
 
+    private String getAuthCookie() {
+        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
+        List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+        return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
+    }
+
     private void uploadFile(String type, String gateway, String bank, String csvContent) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        String authCookie = getAuthCookie();
+        headers.add(HttpHeaders.COOKIE, authCookie);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         ByteArrayResource fileAsResource = new ByteArrayResource(csvContent.getBytes()) {

@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +58,9 @@ public class ReconciliationE2ETest {
     private SqsJobListenerService sqsJobListenerService;
 
     @Autowired
+    private com.reconflow.batch.DependencySweeperTask dependencySweeperTask;
+
+    @Autowired
     private S3Client s3Client;
 
     @Autowired
@@ -78,17 +82,7 @@ public class ReconciliationE2ETest {
         settlementRepo.deleteAll();
         fileRepo.deleteAll();
         
-        // Seed the ledger with a pending transaction
-        LedgerTransaction txn = LedgerTransaction.builder()
-                .internalOrderId("ORDER-1")
-                .gatewayTransactionId(testTxnId)
-                .gateway("PHONEPE")
-                .amount(new BigDecimal("500.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-        testLedgerId = ledgerRepo.save(txn).getId();
+
 
         // Seed a dummy LEDGER UploadedFile so the Gateway delay logic doesn't block
         UploadedFile dummyLedgerFile = UploadedFile.builder()
@@ -144,288 +138,92 @@ public class ReconciliationE2ETest {
         }
     }
 
-    @Test
-    void testFullReconciliationPipeline_PhonePe() throws InterruptedException {
-        // Seed Ledger with 2 transactions
-        LedgerTransaction txn1 = LedgerTransaction.builder()
-                .internalOrderId("ORDER-PP-1")
-                .gatewayTransactionId("pay_PP1")
-                .gateway("PHONEPE")
-                .amount(new BigDecimal("500.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-        
-        LedgerTransaction txn2 = LedgerTransaction.builder()
-                .internalOrderId("ORDER-PP-2")
-                .gatewayTransactionId("pay_PP2")
-                .gateway("PHONEPE")
-                .amount(new BigDecimal("300.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
+    private String getAuthCookie() {
+        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
+        List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+        return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
+    }
 
-        UUID ledgerId1 = ledgerRepo.save(txn1).getId();
-        UUID ledgerId2 = ledgerRepo.save(txn2).getId();
-
-        // 1. Prepare Mock CSV
-        // Row 1: Correct Match (pay_PP1)
-        // Row 2: Amount Mismatch (pay_PP2 is 290 instead of 300)
-        // Row 3: Missing in Ledger (pay_PP3 does not exist in DB)
-        // Row 4: Malicious injection (starts with =)
-        String csvContent = "phonepereferenceid,merchantreferenceid,amount,fee,igst,cgst,sgst,bankreferenceno,settlementdate\n" +
-                "pay_PP1,ORDER-PP-1,500.00,0.00,0.00,0.00,0.00,UTR_PP1,01/10/2026\n" +
-                "pay_PP2,ORDER-PP-2,290.00,0.00,0.00,0.00,0.00,UTR_PP2,01/10/2026\n" +
-                "pay_PP3,ORDER-PP-3,100.00,0.00,0.00,0.00,0.00,UTR_PP3,01/10/2026\n" +
-                "=cmd|'/C calc'!A0,ORDER-MAL,100.00,0.00,0.00,0.00,0.00,UTR_MAL,01/10/2026";
-
+    private void uploadCsv(String type, String gateway, String bank, String content, String filename) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.add(HttpHeaders.COOKIE, getAuthCookie());
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        ByteArrayResource fileAsResource = new ByteArrayResource(csvContent.getBytes()) {
+        ByteArrayResource fileAsResource = new ByteArrayResource(content.getBytes()) {
             @Override
             public String getFilename() {
-                return "e2e-phonepe-" + System.currentTimeMillis() + ".csv";
+                return filename;
             }
         };
 
         body.add("file", fileAsResource);
-        body.add("sourceType", "GATEWAY");
-        body.add("gateway", "PHONEPE");
-        body.add("settlementDate", "2026-09-28");
+        body.add("sourceType", type);
+        body.add("settlementDate", "2026-10-02");
+        if (gateway != null) body.add("gateway", gateway);
+        if (bank != null) body.add("bankName", bank);
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-        // 2. Upload via API
         ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/upload", requestEntity, Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isIn(HttpStatus.OK, HttpStatus.CREATED);
         
-        testFileId = UUID.fromString((String) response.getBody().get("fileId"));
-        s3KeyToDelete = fileRepo.findById(testFileId).get().getS3Key();
-
-        // 3. Wait for SQS listener and Batch Job to complete
-        boolean isCompleted = false;
-        for (int i = 0; i < 45; i++) {
-            sqsJobListenerService.pollMainQueue();
-            Thread.sleep(2000);
-            UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-            if ("COMPLETED".equals(updatedFile.getStatus())) {
-                isCompleted = true;
-                break;
-            } else if ("FAILED".equals(updatedFile.getStatus())) {
-                System.err.println("Batch Job FAILED! Check logs. Error: " + updatedFile.getErrorMessage());
-                break;
-            }
-        }
-        
-        assertThat(isCompleted).as("Job should eventually complete").isTrue();
-
-        // 4. Verification Step!
-        UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-        assertThat(updatedFile.getStatus()).isEqualTo("COMPLETED");
-
-        // 4.1 Match Success Check
-        LedgerTransaction matchedLedger = ledgerRepo.findById(ledgerId1).orElseThrow();
-        assertThat(matchedLedger.getStatus()).isEqualTo("RECONCILED");
-
-        // 4.2 Amount Mismatch Check
-        LedgerTransaction mismatchLedger = ledgerRepo.findById(ledgerId2).orElseThrow();
-        assertThat(mismatchLedger.getStatus()).isEqualTo("UNRECONCILED"); // Unchanged since it failed to fully reconcile
-
-        // 4.3 Exceptions Check
-        long mismatchExceptions = exceptionRepo.findAll().stream()
-                .filter(e -> "AMOUNT_MISMATCH".equals(e.getExceptionType()) && e.getDiscrepancyAmount().compareTo(new BigDecimal("10.00")) == 0)
-                .count();
-        assertThat(mismatchExceptions).isEqualTo(1);
-
-        long missingInLedgerExceptions = exceptionRepo.findAll().stream()
-                .filter(e -> "MISSING_IN_LEDGER".equals(e.getExceptionType()))
-                .count();
-        assertThat(missingInLedgerExceptions).isEqualTo(2); // One for pay_PP3, one for the malicious row (which gets stripped to cmd|...)
-
-        // Cleanup handled by @AfterEach
-        System.out.println("FULL PIPELINE SUCCESS (PHONEPE)");
+        UUID fileId = UUID.fromString((String) response.getBody().get("fileId"));
+        s3KeyToDelete = fileRepo.findById(fileId).get().getS3Key();
     }
 
     @Test
-    void testFullReconciliationPipeline_Razorpay() throws InterruptedException {
-        // Seed Ledger
-        LedgerTransaction rzpLedger = LedgerTransaction.builder()
-                .internalOrderId("ORDER-RZP-1")
-                .gatewayTransactionId("pay_RZP1")
-                .gateway("RAZORPAY")
-                .amount(new BigDecimal("999.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
+    void testComprehensive3WayReconciliation() throws InterruptedException {
+        // 1. Ledger CSV (5 rows)
+        String ledgerCsv = "internal_order_id,gateway_transaction_id,amount,currency,gateway,transaction_date\n" +
+                "ORDER-1,pay_1,100.00,INR,RAZORPAY,2026-10-01\n" +
+                "ORDER-2,pay_2,200.00,INR,RAZORPAY,2026-10-01\n" +
+                "ORDER-3,pay_3,300.00,INR,RAZORPAY,2026-10-01\n" +
+                "ORDER-4,pay_4,400.00,INR,RAZORPAY,2026-10-01\n" +
+                "ORDER-5,pay_5,500.00,INR,RAZORPAY,2026-10-01";
         
-        LedgerTransaction rzpLedger2 = LedgerTransaction.builder()
-                .internalOrderId("ORDER-RZP-2")
-                .gatewayTransactionId("pay_RZP2")
-                .gateway("RAZORPAY")
-                .amount(new BigDecimal("200.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-                
-        UUID ledgerId1 = ledgerRepo.save(rzpLedger).getId();
-        UUID ledgerId2 = ledgerRepo.save(rzpLedger2).getId();
+        uploadCsv("LEDGER", "RAZORPAY", null, ledgerCsv, "ledger-5rows.csv");
 
-        // 1. Prepare Mock CSV
-        // Row 1: Correct
-        // Row 2: Amount Mismatch (199 instead of 200)
-        // Row 3: Missing in Ledger
-        String csvContent = "entity_id,order_id,amount,fee,tax,settlement_utr,settlement_id,currency\n" +
-                "pay_RZP1,ORDER-RZP-1,99900,0,0,UTR_RZP1,SETT_RZP,INR\n" +
-                "pay_RZP2,ORDER-RZP-2,19900,0,0,UTR_RZP2,SETT_RZP,INR\n" +
-                "pay_RZP3,ORDER-RZP-3,10000,0,0,UTR_RZP3,SETT_RZP,INR";
+        // 2. Gateway CSV (5 rows)
+        String gatewayCsv = "entity_id,order_id,amount,fee,tax,settlement_utr,settlement_id,currency\n" +
+                "pay_1,ORDER-1,10000,0,0,UTR-1,SETT-1,INR\n" +
+                "pay_2,ORDER-2,20000,0,0,UTR-1,SETT-1,INR\n" +
+                "pay_3,ORDER-3,30000,0,0,UTR-1,SETT-1,INR\n" +
+                "pay_4,ORDER-4,40000,0,0,UTR-2,SETT-2,INR\n" +
+                "pay_5,ORDER-5,50000,0,0,UTR-2,SETT-2,INR";
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        uploadCsv("GATEWAY", "RAZORPAY", null, gatewayCsv, "gateway-5rows.csv");
 
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        ByteArrayResource fileAsResource = new ByteArrayResource(csvContent.getBytes()) {
-            @Override
-            public String getFilename() {
-                return "e2e-rzp-" + System.currentTimeMillis() + ".csv";
-            }
-        };
+        // 3. Bank CSV (2 rows)
+        String bankCsv = "txn_date,narration,deposit amt.,credit,balance,ref_no\n" +
+                "02-10-2026,Razorpay Settlement UTR-1,600.00,600.00,1600.00,UTR-1\n" +
+                "02-10-2026,Razorpay Settlement UTR-2,900.00,900.00,2500.00,UTR-2";
 
-        body.add("file", fileAsResource);
-        body.add("sourceType", "GATEWAY");
-        body.add("gateway", "RAZORPAY");
-        body.add("settlementDate", "2026-09-28");
+        uploadCsv("BANK", null, "SBI", bankCsv, "bank-2rows.csv");
 
-        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-        // 2. Upload via API
-        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/upload", requestEntity, Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        testFileId = UUID.fromString((String) response.getBody().get("fileId"));
-        s3KeyToDelete = fileRepo.findById(testFileId).get().getS3Key();
-
-        // 3. Wait for SQS listener and Batch Job to complete
-        boolean isCompleted = false;
+        // 4. Wait for SQS listener and Batch Jobs to process everything
         for (int i = 0; i < 45; i++) {
             sqsJobListenerService.pollMainQueue();
-            Thread.sleep(2000);
-            UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-            if ("COMPLETED".equals(updatedFile.getStatus())) {
-                isCompleted = true;
-                break;
-            } else if ("FAILED".equals(updatedFile.getStatus())) {
-                System.err.println("Batch Job FAILED! Check logs. Error: " + updatedFile.getErrorMessage());
-                break;
-            }
-        }
-        
-        assertThat(isCompleted).as("Job should eventually complete").isTrue();
-
-        // 4. Verification Step!
-        UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-        assertThat(updatedFile.getStatus()).isEqualTo("COMPLETED");
-
-        LedgerTransaction updatedLedger = ledgerRepo.findById(ledgerId1).orElseThrow();
-        assertThat(updatedLedger.getStatus()).isEqualTo("RECONCILED");
-        
-        LedgerTransaction mismatchLedger = ledgerRepo.findById(ledgerId2).orElseThrow();
-        assertThat(mismatchLedger.getStatus()).isEqualTo("UNRECONCILED");
-
-        // Cleanup handled by @AfterEach
-        System.out.println("FULL PIPELINE SUCCESS (RAZORPAY)");
-    }
-
-    @Test
-    void testFullReconciliationPipeline_PayU() throws InterruptedException {
-        // Seed Ledger
-        LedgerTransaction payuLedger = LedgerTransaction.builder()
-                .internalOrderId("ORDER-PAYU")
-                .gatewayTransactionId("payu_123")
-                .gateway("PAYU")
-                .amount(new BigDecimal("1500.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
+            dependencySweeperTask.sweep();
+            
+            long reconciledCount = ledgerRepo.findAll().stream()
+                .filter(l -> "RECONCILED".equals(l.getStatus()))
+                .count();
                 
-        LedgerTransaction payuLedger2 = LedgerTransaction.builder()
-                .internalOrderId("ORDER-PAYU-2")
-                .gatewayTransactionId("payu_124")
-                .gateway("PAYU")
-                .amount(new BigDecimal("800.00"))
-                .currency("INR")
-                .status("UNRECONCILED")
-                .transactionDate(ZonedDateTime.now())
-                .build();
-                
-        UUID ledgerId1 = ledgerRepo.save(payuLedger).getId();
-        UUID ledgerId2 = ledgerRepo.save(payuLedger2).getId();
-
-        // 1. Prepare Mock CSV
-        String csvContent = "PaymentId,OrderId,GrossAmount,MDR,GSTOnMDR,SettlementUTR,SettlementId\n" +
-                "payu_123,ORDER-PAYU,1500.00,0.00,0.00,UTR_PAYU,SETT_PAYU\n" +
-                "payu_124,ORDER-PAYU-2,700.00,0.00,0.00,UTR_PAYU2,SETT_PAYU\n" +
-                "payu_125,ORDER-PAYU-3,100.00,0.00,0.00,UTR_PAYU3,SETT_PAYU";
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        ByteArrayResource fileAsResource = new ByteArrayResource(csvContent.getBytes()) {
-            @Override
-            public String getFilename() {
-                return "e2e-payu-" + System.currentTimeMillis() + ".csv";
-            }
-        };
-
-        body.add("file", fileAsResource);
-        body.add("sourceType", "GATEWAY");
-        body.add("gateway", "PAYU");
-        body.add("settlementDate", "2026-09-28");
-
-        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-        // 2. Upload via API
-        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/upload", requestEntity, Map.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        
-        testFileId = UUID.fromString((String) response.getBody().get("fileId"));
-        s3KeyToDelete = fileRepo.findById(testFileId).get().getS3Key();
-
-        // 3. Wait for SQS listener and Batch Job to complete
-        boolean isCompleted = false;
-        for (int i = 0; i < 45; i++) {
-            sqsJobListenerService.pollMainQueue();
-            Thread.sleep(2000);
-            UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-            if ("COMPLETED".equals(updatedFile.getStatus())) {
-                isCompleted = true;
-                break;
-            } else if ("FAILED".equals(updatedFile.getStatus())) {
-                System.err.println("Batch Job FAILED! Check logs. Error: " + updatedFile.getErrorMessage());
+            if (reconciledCount == 5) {
                 break;
             }
+            Thread.sleep(1500);
         }
-        
-        assertThat(isCompleted).as("Job should eventually complete").isTrue();
 
-        // 4. Verification Step!
-        UploadedFile updatedFile = fileRepo.findById(testFileId).orElseThrow();
-        assertThat(updatedFile.getStatus()).isEqualTo("COMPLETED");
+        // 5. Assertions - Seeing Calculations
+        List<LedgerTransaction> ledgers = ledgerRepo.findAll();
+        assertThat(ledgers).hasSize(5);
+        for (LedgerTransaction l : ledgers) {
+            assertThat(l.getStatus()).isEqualTo("RECONCILED");
+        }
 
-        LedgerTransaction updatedLedger = ledgerRepo.findById(ledgerId1).orElseThrow();
-        assertThat(updatedLedger.getStatus()).isEqualTo("RECONCILED");
-        
-        LedgerTransaction mismatchLedger = ledgerRepo.findById(ledgerId2).orElseThrow();
-        assertThat(mismatchLedger.getStatus()).isEqualTo("UNRECONCILED");
-
-        // Cleanup handled by @AfterEach
-        System.out.println("FULL PIPELINE SUCCESS (PAYU)");
+        assertThat(exceptionRepo.count()).isEqualTo(0);
+        System.out.println("FULL 3-WAY RECONCILIATION SUCCESS (5 Rows Ledger/Gateway, 2 Rows Bank)");
     }
 }

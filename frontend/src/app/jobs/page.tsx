@@ -11,8 +11,8 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
 
   const fetchJobs = () => {
-    setLoading(true)
-    fetch('http://localhost:8080/api/v1/upload')
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+    fetch(`${baseUrl}/upload`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         setFiles(data)
@@ -28,7 +28,7 @@ export default function JobsPage() {
     fetchJobs()
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1'
-    const eventSource = new EventSource(`${apiUrl}/jobs/stream`)
+    const eventSource = new EventSource(`${apiUrl}/jobs/stream`, { withCredentials: true })
     
     eventSource.addEventListener('job_event', (event) => {
       console.log('Received job event:', event.data)

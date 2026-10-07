@@ -32,4 +32,6 @@ public interface ExceptionQueueRepository extends JpaRepository<ExceptionQueue, 
     List<ExceptionQueue> findTop5ByOrderByCreatedAtDesc();
     
     List<ExceptionQueue> findAllByOrderByCreatedAtDesc();
+    
+    List<ExceptionQueue> findByAssignedToOrderByCreatedAtDesc(UUID assignedTo);
 }

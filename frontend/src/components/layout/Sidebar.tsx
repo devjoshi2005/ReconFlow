@@ -8,6 +8,7 @@ import {
   Users, Activity, LogOut, Menu, X 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/components/AuthProvider'
 
 interface SidebarProps {
   role: string
@@ -17,23 +18,21 @@ export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
-
+  const { logout } = useAuth();
+  
   const handleLogout = () => {
-    document.cookie = 'recon_role=; path=/; max-age=0'
-    router.push('/login')
+    logout();
   }
 
   const routes = [
-    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', roles: ['ADMIN', 'MANAGER', 'ANALYST'] },
-    { label: 'Upload Files', icon: Upload, href: '/upload', roles: ['ADMIN', 'MANAGER', 'ANALYST'] },
-    { label: 'Exceptions', icon: AlertCircle, href: '/exceptions', roles: ['ADMIN', 'MANAGER', 'ANALYST'] },
-    { label: 'Analytics', icon: BarChart3, href: '/analytics', roles: ['ADMIN', 'MANAGER', 'ANALYST'] },
-    { label: 'Job Monitor', icon: Activity, href: '/jobs', roles: ['ADMIN'] },
-    { label: 'Users', icon: Users, href: '/users', roles: ['ADMIN'] },
-    { label: 'Settings', icon: Settings, href: '/settings', roles: ['ADMIN'] },
+    { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    { label: 'Upload Files', icon: Upload, href: '/upload' },
+    { label: 'Exceptions', icon: AlertCircle, href: '/exceptions' },
+    { label: 'Analytics', icon: BarChart3, href: '/analytics' },
+    { label: 'Job Monitor', icon: Activity, href: '/jobs' },
+    { label: 'Users', icon: Users, href: '/users' },
+    { label: 'Settings', icon: Settings, href: '/settings' },
   ]
-
-  const visibleRoutes = routes.filter(route => route.roles.includes(role))
 
   return (
     <>
@@ -68,7 +67,7 @@ export function Sidebar({ role }: SidebarProps) {
         </div>
 
         <nav className="flex-1 px-4 space-y-1.5 mt-4">
-          {visibleRoutes.map((route) => {
+          {routes.map((route) => {
             const isActive = pathname.startsWith(route.href)
             return (
               <Link

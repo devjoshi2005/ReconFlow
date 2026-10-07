@@ -29,12 +29,29 @@ public class UploadControllerIntegrationTest {
     private UploadedFileRepository uploadedFileRepository;
 
     private UUID uploadedFileId;
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     @AfterEach
     void tearDown() {
         if (uploadedFileId != null) {
             uploadedFileRepository.deleteById(uploadedFileId);
         }
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
+    }
+
+    @org.junit.jupiter.api.BeforeEach
+    void setup() {
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
+    }
+
+    private String getAuthCookie() {
+        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
+        List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+        return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
     }
 
     @Test
@@ -42,11 +59,13 @@ public class UploadControllerIntegrationTest {
         // Prepare multipart request
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        String authCookie = getAuthCookie();
+        headers.add(HttpHeaders.COOKIE, authCookie);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         
         // Use a unique file content to avoid SHA-256 conflict on reruns
-        String fileContent = "payment_id,order_id,amount,settlement_utr\n" + System.currentTimeMillis() + ",order_1,100,utr_1";
+        String fileContent = "entity_id,order_id,amount,settlement_utr\n" + System.currentTimeMillis() + ",order_1,100,utr_1";
         ByteArrayResource fileAsResource = new ByteArrayResource(fileContent.getBytes()) {
             @Override
             public String getFilename() {

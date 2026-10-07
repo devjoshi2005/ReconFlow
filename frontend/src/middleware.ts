@@ -10,35 +10,23 @@ const roleAccess = {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const role = request.cookies.get('recon_role')?.value?.toUpperCase()
+  const token = request.cookies.get('accessToken')?.value
 
-  // Always allow public routes (login)
-  if (pathname === '/login') {
-    if (role) {
+  // Always allow public routes (login, landing)
+  if (pathname === '/login' || pathname === '/') {
+    if (pathname === '/login' && token) {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
     return NextResponse.next()
   }
 
-  // Redirect to login if no role
-  if (!role) {
+  // Redirect to login if no token
+  if (!token) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Check specific sub-route restrictions
-  if (role === 'ANALYST') {
-    if (pathname.startsWith('/analytics/runs') || pathname.startsWith('/analytics/settlements')) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  }
-
-  if (role !== 'ADMIN') {
-    if (pathname.startsWith('/jobs') || pathname.startsWith('/users') || pathname.startsWith('/settings')) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
-    }
-  }
-
-  // Base layout protection (API and static files are ignored via matcher)
+  // Role based checks are now handled by the backend (@PreAuthorize)
+  // and the frontend AuthProvider / RouteGuard if needed.
   return NextResponse.next()
 }
 

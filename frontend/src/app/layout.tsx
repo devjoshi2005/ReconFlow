@@ -11,14 +11,18 @@ export const metadata: Metadata = {
   description: "Next Generation Reconciliation Engine",
 };
 
+import { AuthProvider } from "@/components/AuthProvider";
+import { RouteGuard } from "@/lib/RouteGuard";
+import { AppLayoutWrapper } from "@/components/AppLayoutWrapper";
+
 export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const cookieStore = await cookies();
-  const role = cookieStore.get("recon_role")?.value;
-  const isAuth = !!role;
+  const token = cookieStore.get("accessToken")?.value;
+  const isAuth = !!token;
 
   return (
     <html lang="en" className="dark">
@@ -29,22 +33,13 @@ export default async function RootLayout({
           <div className="absolute top-[60%] -right-[10%] w-[40%] h-[40%] rounded-full bg-indigo-900/10 blur-[100px]" />
         </div>
 
-        {isAuth ? (
-          <>
-            <Sidebar role={role} />
-            <div className="flex-1 flex flex-col md:ml-64 min-h-screen relative z-10">
-              {/* Mobile Header Spacer to prevent content overlap since Sidebar has fixed hamburger */}
-              <div className="md:hidden h-16 w-full flex items-center px-4 bg-zinc-950/80 backdrop-blur-md border-b border-zinc-800/50 sticky top-0 z-30">
-                <h1 className="text-xl font-black tracking-tighter bg-gradient-to-br from-blue-400 to-indigo-600 bg-clip-text text-transparent">ReconFlow</h1>
-              </div>
-              <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-                {children}
-              </main>
-            </div>
-          </>
-        ) : (
-          <main className="flex-1 w-full z-10 relative">{children}</main>
-        )}
+        <AuthProvider>
+          <RouteGuard>
+            <AppLayoutWrapper>
+              {children}
+            </AppLayoutWrapper>
+          </RouteGuard>
+        </AuthProvider>
       </body>
     </html>
   );

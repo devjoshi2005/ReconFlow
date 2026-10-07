@@ -52,6 +52,15 @@ public class UploadE2ETest {
     private UUID uploadedFileId;
     private String s3KeyToDelete;
 
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setup() {
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
+    }
+
     @AfterEach
     void tearDown() {
         if (uploadedFileId != null) {
@@ -63,6 +72,18 @@ public class UploadE2ETest {
                     .key(s3KeyToDelete)
                     .build());
         }
+        redisTemplate.delete("rate:upload:system");
+        redisTemplate.delete("rate:upload:system:ts");
+    }
+
+    @Autowired
+    private com.reconflow.service.SqsJobListenerService sqsJobListenerService;
+
+    private String getAuthCookie() {
+        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
+        List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+        return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
     }
 
     @Test
@@ -70,6 +91,8 @@ public class UploadE2ETest {
         // 1. Prepare HTTP request
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        String authCookie = getAuthCookie();
+        headers.add(HttpHeaders.COOKIE, authCookie);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         String testContent = "PhonePeReferenceId,MerchantReferenceId,Amount,SettlementDate\nTXN-001,merch-1,500.00,2026-09-28\n" + System.currentTimeMillis();
@@ -112,12 +135,14 @@ public class UploadE2ETest {
         // 5. Verify the listener picked it up (status changes from QUEUED)
         boolean processed = false;
         for (int i = 0; i < 15; i++) {
+            sqsJobListenerService.pollMainQueue(); // Manually poll SQS because scheduling is disabled
+            
             UploadedFile f = uploadedFileRepository.findById(uploadedFileId).orElseThrow();
-            if ("PROCESSING".equals(f.getStatus()) || "COMPLETED".equals(f.getStatus()) || "FAILED".equals(f.getStatus())) {
+            if ("PROCESSING".equals(f.getStatus()) || "COMPLETED".equals(f.getStatus()) || "FAILED".equals(f.getStatus()) || "PENDING_DEPENDENCY".equals(f.getStatus())) {
                 processed = true;
                 break;
             }
-            try { Thread.sleep(2000); } catch (InterruptedException e) {}
+            try { Thread.sleep(1000); } catch (InterruptedException e) {}
         }
         
         assertThat(processed).as("File should be picked up by the listener and status changed from QUEUED").isTrue();

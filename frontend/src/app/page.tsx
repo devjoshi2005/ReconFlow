@@ -6,12 +6,6 @@ import { ArrowRight, ShieldCheck, Zap, Layers } from "lucide-react"
 export default function LandingPage() {
   const router = useRouter()
 
-  const handleLogin = (role: string) => {
-    document.cookie = `recon_role=${role}; path=/; max-age=86400`
-    router.push('/dashboard')
-    router.refresh()
-  }
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-[#09090b]">
       {/* Dynamic Background Elements */}
@@ -53,18 +47,11 @@ export default function LandingPage() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button 
-            onClick={() => handleLogin('ADMIN')}
+            onClick={() => router.push('/login')}
             className="group px-8 py-4 rounded-xl bg-white text-black font-bold text-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 shadow-[0_0_40px_-10px_rgba(255,255,255,0.5)]"
           >
-            Login as Admin
+            Access Dashboard
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-          </button>
-          
-          <button 
-            onClick={() => handleLogin('ANALYST')}
-            className="px-8 py-4 rounded-xl bg-white/5 border border-white/10 text-white font-bold text-lg hover:bg-white/10 hover:scale-105 active:scale-95 transition-all"
-          >
-            Login as Analyst
           </button>
         </div>
       </div>

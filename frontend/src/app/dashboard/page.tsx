@@ -9,7 +9,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/v1/analytics/summary')
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+    fetch(`${baseUrl}/analytics/summary`, { credentials: 'include' })
       .then(res => res.json())
       .then(d => {
         setData(d)

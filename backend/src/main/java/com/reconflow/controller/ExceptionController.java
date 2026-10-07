@@ -21,6 +21,11 @@ public class ExceptionController {
 
     @GetMapping
     public ResponseEntity<List<ExceptionQueue>> getAllExceptions() {
+        String role = com.reconflow.security.SecurityUtils.getCurrentUserRole();
+        if ("ROLE_ANALYST".equals(role)) {
+            UUID userId = com.reconflow.security.SecurityUtils.getCurrentUserId();
+            return ResponseEntity.ok(exceptionRepo.findByAssignedToOrderByCreatedAtDesc(userId));
+        }
         return ResponseEntity.ok(exceptionRepo.findAllByOrderByCreatedAtDesc());
     }
 

@@ -13,6 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/upload")
 @RequiredArgsConstructor
+@org.springframework.security.access.prepost.PreAuthorize("hasRole('ANALYST')")
 public class UploadController {
 
     private final UploadService uploadService;
@@ -61,6 +62,9 @@ public class UploadController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("Rate limit exceeded")) {
+                return ResponseEntity.status(429).body(Map.of("error", e.getMessage()));
+            }
             return ResponseEntity.internalServerError().body(Map.of("error", "Failed to process upload: " + e.getMessage()));
         }
     }

@@ -58,9 +58,11 @@ export default function UploadPage() {
       formData.append('bankName', bankName)
     }
 
-    const response = await fetch('http://localhost:8080/api/v1/upload', {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+    const response = await fetch(`${baseUrl}/upload`, {
       method: 'POST',
       body: formData,
+      credentials: 'include'
     })
 
     if (!response.ok) {

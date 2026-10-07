@@ -26,7 +26,7 @@ export default function AnalyticsPage() {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
 
     // Fetch Business Analytics
-    fetch(`${baseUrl}/analytics/summary`)
+    fetch(`${baseUrl}/analytics/summary`, { credentials: 'include' })
       .then(res => res.json())
       .then(d => {
         setData(d)
@@ -38,7 +38,7 @@ export default function AnalyticsPage() {
       })
 
     // Fetch Infrastructure Analytics
-    fetch(`${baseUrl}/system/infrastructure`)
+    fetch(`${baseUrl}/system/infrastructure`, { credentials: 'include' })
       .then(res => res.json())
       .then(d => {
         setInfraData(d)

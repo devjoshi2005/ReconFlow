@@ -69,7 +69,7 @@ class UploadServiceTest {
     @Test
     void testProcessUpload_Success() throws Exception {
         // Arrange
-        String validCsv = "payment_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
+        String validCsv = "entity_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
         MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", validCsv.getBytes());
         
         when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
@@ -100,7 +100,7 @@ class UploadServiceTest {
     @Test
     void testProcessUpload_DuplicateChecksum() throws Exception {
         // Arrange
-        String validCsv = "payment_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
+        String validCsv = "entity_id,order_id,amount,settlement_utr\npay_1,order_1,100,utr_1";
         MockMultipartFile file = new MockMultipartFile("file", "test.csv", "text/csv", validCsv.getBytes());
         when(redisTemplate.execute(any(), anyList(), anyString(), anyString(), anyString())).thenReturn(Collections.singletonList(1L));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);

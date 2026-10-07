@@ -49,19 +49,7 @@ public class UploadService {
     @Value("${aws.sqs.queue-url}")
     private String queueUrl;
 
-    private RedisScript<List> rateLimitScript;
-
-    @jakarta.annotation.PostConstruct
-    public void init() {
-        try {
-            ClassPathResource resource = new ClassPathResource("scripts/token_bucket.lua");
-            byte[] bytes = FileCopyUtils.copyToByteArray(resource.getInputStream());
-            String scriptContent = new String(bytes, StandardCharsets.UTF_8);
-            rateLimitScript = new DefaultRedisScript<>(scriptContent, List.class);
-        } catch (IOException e) {
-            log.error("Failed to load rate limiting script", e);
-        }
-    }
+    private final org.springframework.data.redis.core.script.DefaultRedisScript<List> rateLimitScript;
 
     @Transactional
     public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate, String minAmount, String maxAmount) throws Exception {
@@ -110,23 +98,23 @@ public class UploadService {
                     throw new IllegalArgumentException("Unknown gateway type: " + gateway);
                 }
                 
-                for (String col : required) {
-                    if (!fileCols.contains(col)) {
-                        throw new IllegalArgumentException("Missing required column: '" + col + "'. Please check your CSV format.");
-                    }
-                }
-                
                 // Wrong Gateway Heuristic
                 for (java.util.Map.Entry<String, java.util.List<String>> entry : requiredColumns.entrySet()) {
                     if (entry.getKey().equals(selectedGateway)) continue;
                     long matchCount = entry.getValue().stream().filter(fileCols::contains).count();
                     if (matchCount >= 3) {
-                        throw new IllegalArgumentException("This file looks like a " + entry.getKey() + " file, not " + selectedGateway + ". Did you select the wrong gateway?");
+                        throw new IllegalArgumentException("Invalid gateway format. Expected: " + selectedGateway + " but detected structure for " + entry.getKey() + ".");
+                    }
+                }
+
+                for (String col : required) {
+                    if (!fileCols.contains(col)) {
+                        throw new IllegalArgumentException("Invalid CSV format. Missing required columns for " + selectedGateway + ".");
                     }
                 }
             } else if ("BANK".equalsIgnoreCase(sourceType)) {
                 if (!headerMap.containsKey("txn_date") || (!headerMap.containsKey("credit") && !headerMap.containsKey("deposit amt."))) {
-                    throw new IllegalArgumentException("Wrong bank statement file! Expected txn_date and credit columns.");
+                    throw new IllegalArgumentException("Invalid bank statement format. Required columns missing.");
                 }
             }
         }
@@ -138,18 +126,18 @@ public class UploadService {
         Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(30));
         
         if (Boolean.FALSE.equals(isNew)) {
-            throw new IllegalArgumentException("File is already processing or uploaded.");
+            throw new IllegalArgumentException("Request is already processing. Please wait.");
         }
 
         if (uploadedFileRepository.existsByFileChecksum(checksum)) {
             // Cleanup redis if it was already in DB
             redisTemplate.delete(idempotencyKey);
-            throw new IllegalArgumentException("File with this checksum has already been uploaded.");
+            throw new IllegalArgumentException("A file with identical content has already been uploaded.");
         }
 
         String originalFilename = file.getOriginalFilename();
         if (originalFilename != null && originalFilename.contains("..")) {
-            throw new IllegalArgumentException("Invalid filename. Path traversal attempt detected.");
+            throw new IllegalArgumentException("Invalid file name. Please rename your file and try again.");
         }
         String sanitizedFilename = originalFilename != null ? originalFilename.replaceAll("[^a-zA-Z0-9.-]", "_") : "upload-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0,8) + ".csv";
 
@@ -268,7 +256,7 @@ public class UploadService {
                 batch.add(com.reconflow.entity.LedgerTransaction.builder()
                         .internalOrderId(internalOrderId)
                         .gatewayTransactionId(gatewayTxId)
-                        .amount(new java.math.BigDecimal(amountStr).divide(new java.math.BigDecimal("100")))
+                        .amount(new java.math.BigDecimal(amountStr))
                         .currency(currencyStr)
                         .gateway(gatewayStr)
                         .status("PENDING")

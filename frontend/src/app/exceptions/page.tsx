@@ -17,7 +17,8 @@ export default function ExceptionsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/v1/exceptions')
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+    fetch(`${baseUrl}/exceptions`, { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         setExceptions(data)

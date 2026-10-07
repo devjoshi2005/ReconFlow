@@ -57,7 +57,7 @@ public class CsvValidationTest {
         Exception exception = assertThrows(IllegalArgumentException.class, () -> {
             uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now(), "0.01", "10000000");
         });
-        assertTrue(exception.getMessage().contains("Missing required column"));
+        assertTrue(exception.getMessage().contains("Invalid gateway format. Expected: RAZORPAY but detected structure for PHONEPE."));
     }
 
     @Test
@@ -69,7 +69,7 @@ public class CsvValidationTest {
         Exception exception = assertThrows(IllegalArgumentException.class, () -> {
             uploadService.processUpload(file, "GATEWAY", "PHONEPE", null, java.time.LocalDate.now(), "0.01", "10000000");
         });
-        assertTrue(exception.getMessage().contains("Missing required column"));
+        assertTrue(exception.getMessage().contains("Invalid gateway format. Expected: PHONEPE but detected structure for PAYU."));
     }
     
     @Test
@@ -81,6 +81,6 @@ public class CsvValidationTest {
         Exception exception = assertThrows(IllegalArgumentException.class, () -> {
             uploadService.processUpload(file, "BANK", null, "HDFC", java.time.LocalDate.now(), "0.01", "10000000");
         });
-        assertTrue(exception.getMessage().contains("Wrong bank statement file"));
+        assertTrue(exception.getMessage().contains("Invalid bank statement format. Required columns missing."));
     }
 }
