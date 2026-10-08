@@ -49,10 +49,10 @@ public class DataSeeder implements CommandLineRunner {
         log.info("Ledger data seeding removed as it will be provided via file upload.");
     }
 
-    private void seedUser(String email, String rawPassword, String role, String name) {
-        if (userRepository.findByEmail(email).isEmpty()) {
+    private void seedUser(String username, String rawPassword, String role, String name) {
+        if (userRepository.findByUsername(username).isEmpty()) {
             userRepository.save(User.builder()
-                    .email(email)
+                    .username(username)
                     .password(passwordEncoder.encode(rawPassword))
                     .role(role)
                     .name(name)

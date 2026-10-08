@@ -86,6 +86,7 @@ public class ChainBTasklet implements Tasklet {
                                 .discrepancyAmount(discrepancy)
                                 .currency("INR")
                                 .status("OPEN")
+                                .gateway(settlements.get(0).getGateway())
                                 .build();
                         exceptionsToSave.add(exception);
                     } else {
@@ -102,6 +103,16 @@ public class ChainBTasklet implements Tasklet {
             }
 
             if (!matchedAny) {
+                String extractedGateway = "UNKNOWN";
+                String upperNarration = narration.toUpperCase();
+                if (upperNarration.contains("RAZORPAY") || upperNarration.contains("RZP")) {
+                    extractedGateway = "RAZORPAY";
+                } else if (upperNarration.contains("PHONEPE") || upperNarration.contains("PHPE")) {
+                    extractedGateway = "PHONEPE";
+                } else if (upperNarration.contains("PAYU")) {
+                    extractedGateway = "PAYU";
+                }
+                
                 // No known UTR found in this narration -> MISSING_IN_GATEWAY
                 ExceptionQueue exception = ExceptionQueue.builder()
                         .reconciliationRunId(runId)
@@ -111,6 +122,7 @@ public class ChainBTasklet implements Tasklet {
                         .discrepancyAmount(bankRecord.getCreditAmount())
                         .currency("INR")
                         .status("OPEN")
+                        .gateway(extractedGateway)
                         .build();
                 exceptionsToSave.add(exception);
             }
@@ -132,6 +144,7 @@ public class ChainBTasklet implements Tasklet {
                         .discrepancyAmount(sumNetAmount)
                         .currency("INR")
                         .status("OPEN")
+                        .gateway(settlements.get(0).getGateway())
                         .build();
                 exceptionsToSave.add(exception);
             }

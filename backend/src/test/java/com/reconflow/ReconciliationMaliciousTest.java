@@ -121,7 +121,7 @@ public class ReconciliationMaliciousTest {
     }
 
     private String getAuthCookie() {
-        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        Map<String, String> loginReq = Map.of("username", "admin", "password", "admin");
         ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
         List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
         return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";

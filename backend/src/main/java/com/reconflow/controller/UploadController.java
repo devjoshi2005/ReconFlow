@@ -13,7 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/upload")
 @RequiredArgsConstructor
-@org.springframework.security.access.prepost.PreAuthorize("hasRole('ANALYST')")
+@org.springframework.security.access.prepost.PreAuthorize("hasRole('MANAGER')")
 public class UploadController {
 
     private final UploadService uploadService;

@@ -17,7 +17,7 @@ import java.util.List;
 public class User implements UserDetails {
     @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
-    @Column(nullable = false, unique = true) private String email;
+    @Column(nullable = false, unique = true) private String username;
     @Column(nullable = false) private String password;
     private String name;
     @Column(nullable = false) private String role;
@@ -32,7 +32,7 @@ public class User implements UserDetails {
 
     @Override
     public String getUsername() {
-        return email;
+        return username;
     }
 
     @Override

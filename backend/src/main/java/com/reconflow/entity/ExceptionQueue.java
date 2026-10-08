@@ -20,6 +20,7 @@ public class ExceptionQueue {
     @Column(name = "discrepancy_amount", precision = 15, scale = 2) private BigDecimal discrepancyAmount;
     @Column(nullable = false) private String currency;
     @Column(nullable = false) private String status;
+    @Column(name = "gateway") private String gateway;
     @Column(name = "assigned_to") private UUID assignedTo;
     @Column(name = "resolution_notes", columnDefinition = "TEXT") private String resolutionNotes;
     @Column(name = "resolution_type") private String resolutionType;

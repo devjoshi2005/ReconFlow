@@ -34,11 +34,11 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request, HttpServletResponse response) {
-        // Rate Limiting to prevent brute force (Capacity: 5, Refill: 0.1 per sec)
+        // Rate Limiting to prevent brute force (Capacity: 50, Refill: 0.1 per sec)
         List<Long> result = redisTemplate.execute(
                 rateLimitScript,
-                Collections.singletonList("rate:login:" + request.getEmail()),
-                "5", "0.1", "1"
+                Collections.singletonList("rate:login:" + request.getUsername()),
+                "50", "0.1", "1"
         );
         if (result != null && result.get(0) == 0L) {
             return ResponseEntity.status(429).body(Map.of("error", "Too many login attempts. Please try again later."));
@@ -46,13 +46,13 @@ public class AuthController {
 
         try {
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
             );
 
-            Optional<User> userOptional = userRepository.findByEmail(request.getEmail());
+            Optional<User> userOptional = userRepository.findByUsername(request.getUsername());
             if (userOptional.isPresent()) {
                 User user = userOptional.get();
-                String token = jwtService.generateToken(user.getEmail(), user.getRole(), user.getId().toString());
+                String token = jwtService.generateToken(user.getUsername(), user.getRole(), user.getId().toString());
 
                 Cookie cookie = new Cookie("accessToken", token);
                 cookie.setHttpOnly(true);
@@ -91,7 +91,7 @@ public class AuthController {
 
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpServletResponse response) {
-        Cookie cookie = new Cookie("accessToken", null);
+        Cookie cookie = new Cookie("accessToken", "");
         cookie.setHttpOnly(true);
         cookie.setPath("/");
         cookie.setMaxAge(0); // Delete cookie

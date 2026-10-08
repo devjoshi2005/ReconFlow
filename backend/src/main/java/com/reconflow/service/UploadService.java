@@ -53,12 +53,17 @@ public class UploadService {
 
     @Transactional
     public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate, String minAmount, String maxAmount) throws Exception {
-        // Rate Limiting (Capacity: 10, Refill: 0.5 per sec)
-        String userId = "system"; // Mocking user for now, in real scenario fetch from SecurityContext
+        // Rate Limiting (Capacity: 100, Refill: 0.5 per sec)
+        String userId = "system";
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getName() != null) {
+            userId = auth.getName();
+        }
+        
         List<Long> result = redisTemplate.execute(
                 rateLimitScript,
                 Collections.singletonList("rate:upload:" + userId),
-                "10", "0.5", "1"
+                "100", "0.5", "1"
         );
         
         if (result != null && result.get(0) == 0L) {
@@ -190,11 +195,17 @@ public class UploadService {
 
     @Transactional
     public UploadedFile processLedgerUpload(MultipartFile file, String gateway, java.time.LocalDate settlementDate) throws Exception {
-        String userId = "system"; 
+        // Rate Limiting (Capacity: 100, Refill: 0.5 per sec)
+        String userId = "system";
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getName() != null) {
+            userId = auth.getName();
+        }
+        
         List<Long> result = redisTemplate.execute(
                 rateLimitScript,
                 Collections.singletonList("rate:upload:" + userId),
-                "10", "0.5", "1"
+                "100", "0.5", "1"
         );
         if (result != null && result.get(0) == 0L) {
             throw new RuntimeException("Rate limit exceeded. Please try again later.");

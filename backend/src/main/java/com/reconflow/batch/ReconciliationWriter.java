@@ -61,15 +61,12 @@ public class ReconciliationWriter implements ItemWriter<ReconciliationResult> {
         }
 
         if (!chainAMatches.isEmpty()) {
-            // Ensure GatewaySettlement ID is propagated to ChainAMatch if needed
-            for (int i = 0; i < chainAMatches.size(); i++) {
-                com.reconflow.entity.ChainAMatch match = chainAMatches.get(i);
-                // The gatewaySettlement corresponds to the result. We need to find the matching one,
-                // but since they are generated identically, we can rely on index mapping if ordered,
-                // or just set it in processor if IDs are pre-generated UUIDs.
-                // Our GatewaySettlement uses UUID.randomUUID() upon creation via @PrePersist or builder,
-                // but if not, we must rely on Hibernate assigning it.
-                // Assuming IDs are set:
+            // After gateway settlements are saved, their IDs are populated.
+            // We just iterate over the chunk results and link them.
+            for (ReconciliationResult result : chunk) {
+                if (result.getChainAMatch() != null && result.getGatewaySettlement() != null) {
+                    result.getChainAMatch().setGatewaySettlementId(result.getGatewaySettlement().getId());
+                }
             }
             chainAMatchRepository.saveAll(chainAMatches);
             log.info("Saved {} Chain A matches.", chainAMatches.size());

@@ -39,13 +39,17 @@ export default function AnalyticsPage() {
 
     // Fetch Infrastructure Analytics
     fetch(`${baseUrl}/system/infrastructure`, { credentials: 'include' })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch infrastructure data');
+        return res.json();
+      })
       .then(d => {
         setInfraData(d)
         setLoadingInfra(false)
       })
       .catch(e => {
         console.error("Failed to fetch infrastructure data", e)
+        setInfraData(null)
         setLoadingInfra(false)
       })
   }, [])

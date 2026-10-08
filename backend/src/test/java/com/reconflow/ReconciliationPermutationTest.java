@@ -145,7 +145,7 @@ public class ReconciliationPermutationTest {
     }
 
     private String getAuthCookie() {
-        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        Map<String, String> loginReq = Map.of("username", "admin", "password", "admin");
         ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
         List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
         return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
@@ -185,7 +185,7 @@ public class ReconciliationPermutationTest {
 
     private String getLedgerCsv() {
         return "internal_order_id,gateway_transaction_id,amount,currency,gateway,transaction_date\n" +
-               orderId + "," + paymentId + ",50000,INR,RAZORPAY,2026-10-01\n";
+               orderId + "," + paymentId + ",500,INR,RAZORPAY,2026-10-01\n";
     }
 
     private String getGatewayCsv() {

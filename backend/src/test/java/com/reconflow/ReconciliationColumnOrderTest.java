@@ -145,7 +145,7 @@ public class ReconciliationColumnOrderTest {
     }
 
     private String getAuthCookie() {
-        Map<String, String> loginReq = Map.of("email", "admin", "password", "admin");
+        Map<String, String> loginReq = Map.of("username", "admin", "password", "admin");
         ResponseEntity<Map> response = restTemplate.postForEntity("/api/v1/auth/login", loginReq, Map.class);
         List<String> cookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
         return cookies != null && !cookies.isEmpty() ? cookies.get(0) : "";
@@ -187,7 +187,7 @@ public class ReconciliationColumnOrderTest {
     void testShuffledColumnsAndExtraData() throws InterruptedException {
         // Ledger: Reversed column order and added random extra column 'foo_bar'
         String shuffledLedger = "transaction_date,gateway,currency,amount,gateway_transaction_id,internal_order_id,foo_bar\n" +
-                "2026-10-01,RAZORPAY,INR,50000," + paymentId + "," + orderId + ",useless_data\n";
+                "2026-10-01,RAZORPAY,INR,500," + paymentId + "," + orderId + ",useless_data\n";
                 
         // Gateway: Shuffled order
         String shuffledGateway = "tax,fee,amount,settlement_id,settlement_utr,order_id,entity_id,currency\n" +

@@ -123,6 +123,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                                         .discrepancyAmount(record.getAmount())
                                         .currency("INR")
                                         .status("OPEN")
+                                        .gateway(record.getGateway())
                                         .build();
                                 exceptionQueueRepository.save(duplicateException);
                             }
@@ -241,6 +242,7 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                         .discrepancyAmount(record.getAmount())
                         .currency("INR")
                         .status("OPEN")
+                        .gateway(record.getGateway())
                         .build();
                 exceptions.add(exception);
             }

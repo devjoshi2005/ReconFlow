@@ -53,7 +53,7 @@ public class SqsJobListenerService {
             ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
                     .queueUrl(queueUrl)
                     .maxNumberOfMessages(5)
-                    .waitTimeSeconds(5) // Long polling
+                    .waitTimeSeconds(1) // Reduced for faster E2E testing
                     .build();
             
             List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
@@ -97,8 +97,8 @@ public class SqsJobListenerService {
                                 continue;
                             }
                         } else if ("GATEWAY".equalsIgnoreCase(uploadedFile.getSourceType())) {
-                            boolean ledgerCompleted = uploadedFileRepository.existsBySourceTypeAndGatewayAndSettlementDateAndStatus(
-                                    "LEDGER", uploadedFile.getGateway(), uploadedFile.getSettlementDate(), "COMPLETED"
+                            boolean ledgerCompleted = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
+                                    "LEDGER", uploadedFile.getSettlementDate(), "COMPLETED"
                             );
                             if (!ledgerCompleted) {
                                 log.info("Delaying GATEWAY file {} processing. LEDGER file missing for date {}", fileId, uploadedFile.getSettlementDate());

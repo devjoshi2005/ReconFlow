@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest(properties = {"scheduling.enabled=false"})
 @AutoConfigureMockMvc
-@org.springframework.security.test.context.support.WithMockUser(roles = "ANALYST")
+@org.springframework.security.test.context.support.WithMockUser(roles = "MANAGER")
 public class CsvValidationTest {
 
     @Autowired
@@ -32,16 +32,18 @@ public class CsvValidationTest {
 
     @BeforeEach
     void setup() {
-        redisTemplate.delete("upload_rate_limit:system");
         redisTemplate.delete("rate:upload:system");
         redisTemplate.delete("rate:upload:system:ts");
+        redisTemplate.delete("rate:upload:user");
+        redisTemplate.delete("rate:upload:user:ts");
     }
 
     @AfterEach
     void tearDown() {
-        redisTemplate.delete("upload_rate_limit:system");
         redisTemplate.delete("rate:upload:system");
         redisTemplate.delete("rate:upload:system:ts");
+        redisTemplate.delete("rate:upload:user");
+        redisTemplate.delete("rate:upload:user:ts");
     }
 
     @Test
@@ -152,25 +154,30 @@ public class CsvValidationTest {
     @Test
     void testRateLimiting_Returns429() throws Exception {
         boolean hitRateLimit = false;
+        String lastResponse = "";
+        int lastStatus = 0;
         
-        for (int i = 0; i < 15; i++) {
+        for (int i = 0; i < 110; i++) {
             String csv = "entity_id,order_id,amount,settlement_utr\npay_rate_limit_" + i + ",order_1,500,utr_1";
             MockMultipartFile file = new MockMultipartFile("file", "test" + i + ".csv", MediaType.TEXT_PLAIN_VALUE, csv.getBytes());
 
-            int status = mockMvc.perform(multipart("/api/v1/upload")
+            var result = mockMvc.perform(multipart("/api/v1/upload")
                     .file(file)
                     .param("sourceType", "GATEWAY")
                     .param("gateway", "RAZORPAY")
                     .param("settlementDate", "2026-10-01"))
-                    .andReturn().getResponse().getStatus();
+                    .andReturn();
+            
+            lastStatus = result.getResponse().getStatus();
+            lastResponse = result.getResponse().getContentAsString();
                     
-            if (status == 429) {
+            if (lastStatus == 429) {
                 hitRateLimit = true;
                 break;
             }
         }
         
-        org.junit.jupiter.api.Assertions.assertTrue(hitRateLimit, "Rate limit should have been hit when sending 15 sequential requests");
+        org.junit.jupiter.api.Assertions.assertTrue(hitRateLimit, "Rate limit should have been hit. Last status: " + lastStatus + ", Body: " + lastResponse);
     }
 
     @Test

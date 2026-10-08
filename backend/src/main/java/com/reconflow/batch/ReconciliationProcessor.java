@@ -77,6 +77,7 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
                     .discrepancyAmount(discrepancy)
                     .currency(ledger.getCurrency())
                     .status("OPEN")
+                    .gateway(ledger.getGateway())
                     .build();
 
             ledger.setStatus("UNRECONCILED");

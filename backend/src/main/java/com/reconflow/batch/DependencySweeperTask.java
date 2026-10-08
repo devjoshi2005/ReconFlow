@@ -44,8 +44,8 @@ public class DependencySweeperTask {
             boolean canProcess = false;
 
             if ("GATEWAY".equalsIgnoreCase(file.getSourceType())) {
-                canProcess = uploadedFileRepository.existsBySourceTypeAndGatewayAndSettlementDateAndStatus(
-                        "LEDGER", file.getGateway(), file.getSettlementDate(), "COMPLETED");
+                canProcess = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
+                        "LEDGER", file.getSettlementDate(), "COMPLETED");
             } else if ("BANK".equalsIgnoreCase(file.getSourceType())) {
                 // Bank files don't have a specific gateway, they depend on ANY Gateway file for that date
                 canProcess = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
