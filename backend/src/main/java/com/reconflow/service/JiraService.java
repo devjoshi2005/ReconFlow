@@ -42,12 +42,9 @@ public class JiraService {
                 .orElseThrow(() -> new RuntimeException("Exception not found"));
 
         try {
-            String auth = jiraUsername + ":" + jiraApiToken;
-            String encodedAuth = java.util.Base64.getEncoder().encodeToString(auth.getBytes());
-
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("Authorization", "Basic " + encodedAuth);
+            headers.setBasicAuth(jiraUsername, jiraApiToken);
 
             // Constructing a basic Jira issue payload
             Map<String, Object> project = new HashMap<>();

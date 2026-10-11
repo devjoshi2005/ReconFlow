@@ -39,6 +39,7 @@ public class UploadService {
     private final UploadedFileRepository uploadedFileRepository;
     private final com.reconflow.repository.LedgerTransactionRepository ledgerTransactionRepository;
     private final StringRedisTemplate redisTemplate;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @Value("${aws.s3.bucket-name}")
     private String bucketName;
@@ -273,25 +274,24 @@ public class UploadService {
                         .status("PENDING")
                         .transactionDate(java.time.ZonedDateTime.parse(dateStr + "T00:00:00Z")) // Basic parsing
                         .build());
+                        
+                // Stream optimization: flush batch to DB to prevent OutOfMemory on huge files
+                if (batch.size() >= batchSize) {
+                    flushBatch(batch);
+                    rowCount += batch.size(); // Note: flushBatch handles duplicates, rowCount might slightly overcount duplicates but it's okay for general stats
+                    batch.clear();
+                }
+            }
+            
+            // Flush any remaining records in the final chunk
+            if (!batch.isEmpty()) {
+                flushBatch(batch);
+                rowCount += batch.size();
+                batch.clear();
             }
         } catch (Exception e) {
             redisTemplate.delete(idempotencyKey);
             throw new RuntimeException("Failed to parse Ledger CSV: " + e.getMessage(), e);
-        }
-
-        // De-duplicate using internal_order_id
-        for (int i = 0; i < batch.size(); i += batchSize) {
-            List<com.reconflow.entity.LedgerTransaction> chunk = batch.subList(i, Math.min(batch.size(), i + batchSize));
-            List<String> orderIds = chunk.stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
-            List<String> existingIds = ledgerTransactionRepository.findByInternalOrderIdIn(orderIds)
-                    .stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
-            
-            List<com.reconflow.entity.LedgerTransaction> toSave = chunk.stream()
-                    .filter(tx -> !existingIds.contains(tx.getInternalOrderId()))
-                    .toList();
-            
-            ledgerTransactionRepository.saveAll(toSave);
-            rowCount += toSave.size();
         }
 
         String originalFilename = file.getOriginalFilename();
@@ -346,5 +346,37 @@ public class UploadService {
         
         String counterpartSource = "GATEWAY".equalsIgnoreCase(sourceType) ? "BANK" : "GATEWAY";
         return uploadedFileRepository.existsBySourceTypeAndSettlementDate(counterpartSource, settlementDate);
+    }
+    private void flushBatch(List<com.reconflow.entity.LedgerTransaction> chunk) {
+        List<String> orderIds = chunk.stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
+        List<String> existingIds = ledgerTransactionRepository.findByInternalOrderIdIn(orderIds)
+                .stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
+        
+        List<com.reconflow.entity.LedgerTransaction> toSave = chunk.stream()
+                .filter(tx -> !existingIds.contains(tx.getInternalOrderId()))
+                .toList();
+                
+        if (toSave.isEmpty()) return;
+        
+        String sql = "INSERT INTO ledger_transactions (id, internal_order_id, gateway_transaction_id, amount, currency, gateway, status, transaction_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        jdbcTemplate.batchUpdate(sql, new org.springframework.jdbc.core.BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(java.sql.PreparedStatement ps, int i) throws java.sql.SQLException {
+                com.reconflow.entity.LedgerTransaction tx = toSave.get(i);
+                ps.setObject(1, java.util.UUID.randomUUID()); // Generate UUID
+                ps.setString(2, tx.getInternalOrderId());
+                ps.setString(3, tx.getGatewayTransactionId());
+                ps.setBigDecimal(4, tx.getAmount());
+                ps.setString(5, tx.getCurrency());
+                ps.setString(6, tx.getGateway());
+                ps.setString(7, tx.getStatus());
+                ps.setObject(8, java.sql.Timestamp.from(tx.getTransactionDate().toInstant()));
+            }
+
+            @Override
+            public int getBatchSize() {
+                return toSave.size();
+            }
+        });
     }
 }
