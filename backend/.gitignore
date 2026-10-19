@@ -31,3 +31,17 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment & secrets ###
+# Local env files (real credentials)
+.env
+.env.*
+!.env.example
+
+# Local/secret Spring config overrides
+src/main/resources/application-local.yml
+src/main/resources/application-local.properties
+src/test/resources/application.properties
+
+### Compiled classes ###
+*.class
