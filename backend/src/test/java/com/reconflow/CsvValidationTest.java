@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @SpringBootTest(properties = {"scheduling.enabled=false"})
 @AutoConfigureMockMvc
 @org.springframework.security.test.context.support.WithMockUser(roles = "MANAGER")
-public class CsvValidationTest {
+public class CsvValidationTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;

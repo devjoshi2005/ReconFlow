@@ -1,0 +1,32 @@
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: always
+
+server:
+  port: 0
+
+reconflow:
+  sweeper:
+    delay: 86400000
+  stale-ledger-sweep:
+    fixed-delay: 86400000
+
+logging:
+  level:
+    com.reconflow: INFO
+    org.springframework.batch: WARN
+    org.testcontainers: INFO

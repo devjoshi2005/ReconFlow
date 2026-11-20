@@ -1,5 +1,6 @@
 package com.reconflow.entity;
 
+import com.reconflow.entity.status.LedgerTransactionStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -36,8 +37,10 @@ public class LedgerTransaction {
     @Column(name = "gateway", length = 50)
     private String gateway;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
-    private String status;
+    @Setter(AccessLevel.NONE)
+    private LedgerTransactionStatus status;
 
     @Column(name = "transaction_date", nullable = false)
     private ZonedDateTime transactionDate;
@@ -45,4 +48,12 @@ public class LedgerTransaction {
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private ZonedDateTime createdAt;
+
+    public void transitionTo(LedgerTransactionStatus newStatus) {
+        if (!this.status.canTransitionTo(newStatus)) {
+            throw new IllegalStateException(
+                    "Invalid state transition: " + this.status + " -> " + newStatus);
+        }
+        this.status = newStatus;
+    }
 }

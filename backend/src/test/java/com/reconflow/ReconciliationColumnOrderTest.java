@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-public class ReconciliationColumnOrderTest {
+public class ReconciliationColumnOrderTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -64,7 +64,7 @@ public class ReconciliationColumnOrderTest {
     @Autowired
     private S3Client s3Client;
 
-    private String bucketName = "reconflow-uploads-test";
+    private String bucketName = com.reconflow.support.TestInfra.BUCKET;
     private List<String> s3KeysToDelete = new ArrayList<>();
     
     private String orderId;
@@ -134,7 +134,7 @@ public class ReconciliationColumnOrderTest {
             dependencySweeperTask.sweep();
             
             long reconciledCount = ledgerRepo.findAll().stream()
-                .filter(l -> "RECONCILED".equals(l.getStatus()))
+                .filter(l -> l.getStatus() == com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED)
                 .count();
                 
             if (reconciledCount > 0) {
@@ -206,7 +206,7 @@ public class ReconciliationColumnOrderTest {
         // Verify successful processing despite shuffled columns
         assertThat(ledgerRepo.findAll()).hasSize(1);
         LedgerTransaction txn = ledgerRepo.findAll().get(0);
-        assertThat(txn.getStatus()).isEqualTo("RECONCILED");
+        assertThat(txn.getStatus()).isEqualTo(com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED);
         assertThat(exceptionRepo.findAll()).isEmpty();
     }
 }

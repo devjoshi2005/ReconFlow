@@ -24,13 +24,15 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.test.context.support.WithMockUser;
 
 @SpringBootTest
 @AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 @WithMockUser(username = "admin", roles = {"ADMIN", "MANAGER", "ANALYST"})
-public class AdvancedMetricsTest {
+public class AdvancedMetricsTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;
@@ -124,7 +126,7 @@ public class AdvancedMetricsTest {
                 .param("sourceType", "LEDGER")
                 .param("gateway", "RAZORPAY")
                 .param("settlementDate", "2026-10-10"))
-                .andExpect(status().isOk());
+                .andExpect(status().is2xxSuccessful());
         long ingestTime = System.currentTimeMillis() - startIngest;
         System.out.println("[METRIC] Ingestion Time for 10K rows (Ledger JDBC Batching): " + ingestTime + " ms");
 
@@ -135,43 +137,80 @@ public class AdvancedMetricsTest {
         CountDownLatch latch = new CountDownLatch(threads);
         MockMultipartFile dupFile = new MockMultipartFile("file", "duplicate.csv", "text/csv", "entity_id,order_id,amount,settlement_utr\nGW-1,ORD-1,100.00,UTR-1\n".getBytes());
         AtomicInteger failures = new AtomicInteger(0);
-        
+        AtomicInteger accepted = new AtomicInteger(0);
+
+        // @WithMockUser only populates the test thread's SecurityContext. Worker
+        // threads start empty, so without propagation every request is rejected by
+        // @PreAuthorize and the idempotency assertion becomes vacuous.
+        SecurityContext testContext = SecurityContextHolder.getContext();
+
         for (int i = 0; i < threads; i++) {
             executor.submit(() -> {
+                SecurityContext workerContext = SecurityContextHolder.createEmptyContext();
+                workerContext.setAuthentication(testContext.getAuthentication());
+                SecurityContextHolder.setContext(workerContext);
                 try {
-                    mockMvc.perform(multipart("/api/v1/upload")
-                        .file(dupFile)
-                        .param("sourceType", "GATEWAY")
-                        .param("gateway", "RAZORPAY")
-                        .param("settlementDate", "2026-10-20"));
+                    int httpStatus = mockMvc.perform(multipart("/api/v1/upload")
+                            .file(dupFile)
+                            .param("sourceType", "GATEWAY")
+                            .param("gateway", "RAZORPAY")
+                            .param("settlementDate", "2026-10-20"))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus();
+                    if (httpStatus >= 200 && httpStatus < 300) {
+                        accepted.incrementAndGet();
+                    }
                 } catch (Exception e) {
                     failures.incrementAndGet();
                 } finally {
+                    SecurityContextHolder.clearContext();
                     latch.countDown();
                 }
             });
         }
         latch.await();
-        
+        executor.shutdown();
+
         // Count how many files were actually registered for that settlement date
         long uniqueFiles = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM uploaded_files WHERE settlement_date = '2026-10-20'", Long.class);
-        System.out.println("[METRIC] Concurrent Idempotency across 15 threads resulted in " + uniqueFiles + " unique DB records (0 lost/duplicated).");
+        System.out.println("[METRIC] Concurrent Idempotency across 15 threads resulted in " + uniqueFiles
+                + " unique DB record(s), " + accepted.get() + " accepted, " + failures.get() + " failed.");
+
+        org.assertj.core.api.Assertions.assertThat(accepted.get())
+                .as("At least one concurrent upload should be accepted")
+                .isGreaterThanOrEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(uniqueFiles)
+                .as("15 simultaneous identical uploads must result in exactly one DB record")
+                .isEqualTo(1L);
 
         // --- 4. Redis Rate Limiter ---
         System.out.println("Checking Redis Rate Limiter functionality...");
+        stringRedisTemplate.delete("rate:upload:admin");
+        stringRedisTemplate.delete("rate:upload:system");
         int tooManyRequestsCount = 0;
-        for (int i = 0; i < 60; i++) {
-            try {
-                mockMvc.perform(multipart("/api/v1/upload")
-                    .file(new MockMultipartFile("file", "rl.csv", "text/csv", "entity_id,order_id,amount,settlement_utr\nGW-1,ORD-1,100.00,UTR-1\n".getBytes()))
+        // Bucket capacity is 100 (0.5 tokens/sec refill), so 110 distinct uploads must
+        // exhaust it and produce at least one 429. Distinct contents avoid the
+        // idempotency guard masking the rate-limit response.
+        for (int i = 0; i < 110; i++) {
+            String uniqueCsv = "entity_id,order_id,amount,settlement_utr\n"
+                    + "GW-RL-" + i + ",ORD-RL-" + i + ",100.00,UTR-RL-" + i + "\n";
+            int status = mockMvc.perform(multipart("/api/v1/upload")
+                    .file(new MockMultipartFile("file", "rl-" + i + ".csv", "text/csv", uniqueCsv.getBytes()))
                     .param("sourceType", "GATEWAY")
                     .param("gateway", "RAZORPAY")
                     .param("settlementDate", "2026-10-21"))
-                    .andExpect(status().isTooManyRequests());
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+            if (status == 429) {
                 tooManyRequestsCount++;
-            } catch (Exception e) {}
+            }
         }
         System.out.println("[METRIC] Redis Rate Limiter intercepted " + tooManyRequestsCount + " requests exceeding burst capacity.");
+        org.assertj.core.api.Assertions.assertThat(tooManyRequestsCount)
+                .as("Rate limiter should reject requests beyond the 100-request burst")
+                .isGreaterThan(0);
 
         // --- 5. Precision & Recall ---
         // To accurately calculate this, we need the Spring Batch job to run. 

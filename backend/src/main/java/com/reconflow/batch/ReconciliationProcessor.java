@@ -68,7 +68,7 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
         if (ledger.getAmount().compareTo(gatewayRecord.getAmount()) != 0) {
             // Amount Mismatch Exception
             BigDecimal discrepancy = ledger.getAmount().subtract(gatewayRecord.getAmount()).abs();
-            
+
             ExceptionQueue exception = ExceptionQueue.builder()
                     .reconciliationRunId(runId)
                     .matchId(ledger.getId())
@@ -76,11 +76,13 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
                     .exceptionType("AMOUNT_MISMATCH")
                     .discrepancyAmount(discrepancy)
                     .currency(ledger.getCurrency())
-                    .status("OPEN")
+                    .status(com.reconflow.entity.status.ExceptionStatus.OPEN)
                     .gateway(ledger.getGateway())
                     .build();
 
-            ledger.setStatus("UNRECONCILED");
+            if (ledger.getStatus() != com.reconflow.entity.status.LedgerTransactionStatus.UNRECONCILED) {
+                ledger.transitionTo(com.reconflow.entity.status.LedgerTransactionStatus.UNRECONCILED);
+            }
 
             return ReconciliationResult.builder()
                     .matchedLedgerTransaction(ledger)
@@ -90,7 +92,9 @@ public class ReconciliationProcessor implements ItemProcessor<LedgerTransaction,
         }
 
         // Perfect Match
-        ledger.setStatus("RECONCILED");
+        if (ledger.getStatus() != com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED) {
+            ledger.transitionTo(com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED);
+        }
         
         ChainAMatch match = ChainAMatch.builder()
                 .reconciliationRunId(runId)

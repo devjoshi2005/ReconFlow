@@ -1,6 +1,7 @@
 package com.reconflow.repository;
 
 import com.reconflow.entity.ExceptionQueue;
+import com.reconflow.entity.status.ExceptionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -11,8 +12,8 @@ import java.util.UUID;
 
 @Repository
 public interface ExceptionQueueRepository extends JpaRepository<ExceptionQueue, UUID> {
-    
-    long countByStatus(String status);
+
+    long countByStatus(ExceptionStatus status);
 
     @Query("SELECT e.exceptionType as type, COUNT(e) as count FROM ExceptionQueue e GROUP BY e.exceptionType")
     List<Map<String, Object>> countByExceptionType();
@@ -30,8 +31,13 @@ public interface ExceptionQueueRepository extends JpaRepository<ExceptionQueue, 
     List<Map<String, Object>> getExceptionTimeSeries(@org.springframework.data.repository.query.Param("since") java.time.ZonedDateTime since);
 
     List<ExceptionQueue> findTop5ByOrderByCreatedAtDesc();
-    
+
     List<ExceptionQueue> findAllByOrderByCreatedAtDesc();
-    
+
     List<ExceptionQueue> findByAssignedToOrderByCreatedAtDesc(UUID assignedTo);
+
+    boolean existsByMatchIdAndExceptionType(UUID matchId, String exceptionType);
+
+    boolean existsByReconciliationRunIdAndMatchIdAndExceptionType(
+            UUID reconciliationRunId, UUID matchId, String exceptionType);
 }

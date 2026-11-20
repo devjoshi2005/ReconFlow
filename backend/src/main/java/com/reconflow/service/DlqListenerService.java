@@ -3,7 +3,6 @@ package com.reconflow.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sqs.SqsClient;
@@ -14,12 +13,12 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import java.util.List;
 
 @Service
-@EnableScheduling
 @RequiredArgsConstructor
 @Slf4j
 public class DlqListenerService {
 
     private final SqsClient sqsClient;
+    private final DlqFailureService dlqFailureService;
 
     @Value("${aws.sqs.dlq-url}")
     private String dlqUrl;
@@ -32,19 +31,22 @@ public class DlqListenerService {
                     .maxNumberOfMessages(10)
                     .waitTimeSeconds(5) // Short polling for DLQ
                     .build();
-            
+
             List<Message> messages = sqsClient.receiveMessage(receiveRequest).messages();
-            
+
             for (Message message : messages) {
                 log.error("ALERT: Received failed message from DLQ: {}", message.body());
-                
-                // Usually we store this in ExceptionQueue or Alerting system
-                // For now we just log it and delete it so we don't process it infinitely
-                
-                sqsClient.deleteMessage(DeleteMessageRequest.builder()
-                        .queueUrl(dlqUrl)
-                        .receiptHandle(message.receiptHandle())
-                        .build());
+                try {
+                    // Persist before deleting: if recording fails, the message stays in
+                    // the DLQ and is retried rather than being silently lost.
+                    dlqFailureService.recordFailure(message.body());
+                    sqsClient.deleteMessage(DeleteMessageRequest.builder()
+                            .queueUrl(dlqUrl)
+                            .receiptHandle(message.receiptHandle())
+                            .build());
+                } catch (Exception e) {
+                    log.error("Failed to record DLQ message; leaving it in the DLQ for retry", e);
+                }
             }
         } catch (Exception e) {
             log.error("Failed to poll DLQ", e);

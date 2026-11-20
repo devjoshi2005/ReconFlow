@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import jakarta.servlet.http.Cookie;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -27,7 +28,7 @@ import java.time.ZonedDateTime;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class RbacControllerTest {
+class RbacControllerTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;
@@ -52,6 +53,9 @@ class RbacControllerTest {
     private UUID managerId;
     private UUID adminId;
 
+    private UUID analystExceptionId;
+    private UUID managerExceptionId;
+
     @BeforeEach
     void setUp() {
         exceptionQueueRepository.deleteAll();
@@ -73,7 +77,7 @@ class RbacControllerTest {
 
         ReconciliationRun run = ReconciliationRun.builder()
                 .runDate(java.time.LocalDate.now())
-                .status("COMPLETED")
+                .status(com.reconflow.entity.status.ReconciliationRunStatus.COMPLETED)
                 .startedAt(ZonedDateTime.now())
                 .completedAt(ZonedDateTime.now())
                 .chainATotal(10)
@@ -90,10 +94,10 @@ class RbacControllerTest {
                 .exceptionType("AMOUNT_MISMATCH")
                 .discrepancyAmount(new BigDecimal("10.00"))
                 .currency("INR")
-                .status("OPEN")
+                .status(com.reconflow.entity.status.ExceptionStatus.OPEN)
                 .assignedTo(analystId)
                 .build();
-                
+
         // Seed some exceptions assigned to Manager
         ExceptionQueue managerException = ExceptionQueue.builder()
                 .reconciliationRunId(run.getId())
@@ -102,12 +106,12 @@ class RbacControllerTest {
                 .exceptionType("MISSING_IN_LEDGER")
                 .discrepancyAmount(new BigDecimal("50.00"))
                 .currency("INR")
-                .status("OPEN")
+                .status(com.reconflow.entity.status.ExceptionStatus.OPEN)
                 .assignedTo(managerId)
                 .build();
                 
-        exceptionQueueRepository.save(analystException);
-        exceptionQueueRepository.save(managerException);
+        analystExceptionId = exceptionQueueRepository.save(analystException).getId();
+        managerExceptionId = exceptionQueueRepository.save(managerException).getId();
     }
 
     @Test
@@ -189,5 +193,80 @@ class RbacControllerTest {
         mockMvc.perform(get("/api/v1/exceptions")
                 .cookie(new Cookie("accessToken", hackedToken)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testAnalystCannotResolveUnassignedException() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", managerExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"RESOLVE\",\"notes\":\"not mine\"}")
+                .cookie(new Cookie("accessToken", analystToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testAnalystCanResolveAssignedException() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", analystExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"RESOLVE\",\"notes\":\"verified against ledger\"}")
+                .cookie(new Cookie("accessToken", analystToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"));
+    }
+
+    @Test
+    void testManagerCanResolveAnyException() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", managerExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"RESOLVE\",\"notes\":\"approved by manager\"}")
+                .cookie(new Cookie("accessToken", managerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"));
+    }
+
+    @Test
+    void testResolvingAnAlreadyResolvedExceptionReturnsConflict() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", analystExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"RESOLVE\"}")
+                .cookie(new Cookie("accessToken", analystToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", analystExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"RESOLVE\"}")
+                .cookie(new Cookie("accessToken", analystToken)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void testAnalystCannotApproveException() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", analystExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"APPROVE\"}")
+                .cookie(new Cookie("accessToken", analystToken)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testManagerApprovalResolvesAndRecordsApprover() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", managerExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"APPROVE\",\"notes\":\"approved\"}")
+                .cookie(new Cookie("accessToken", managerToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"));
+
+        ExceptionQueue updated = exceptionQueueRepository.findById(managerExceptionId).orElseThrow();
+        assertThat(updated.getApprovedBy()).isEqualTo(managerId);
+    }
+
+    @Test
+    void testUnknownResolutionActionReturnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/v1/exceptions/{id}/resolve", managerExceptionId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"action\":\"TELEPORT\"}")
+                .cookie(new Cookie("accessToken", managerToken)))
+                .andExpect(status().isBadRequest());
     }
 }

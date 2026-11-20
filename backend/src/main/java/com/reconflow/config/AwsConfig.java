@@ -6,8 +6,11 @@ import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sqs.SqsClient;
+
+import java.net.URI;
 
 @Configuration
 public class AwsConfig {
@@ -21,30 +24,52 @@ public class AwsConfig {
     @Value("${AWS_SECRET_ACCESS_KEY}")
     private String secretAccessKey;
 
+    /**
+     * Optional endpoint override. When set (e.g. to a LocalStack edge URL), the SDK
+     * talks to that endpoint instead of real AWS. Empty in production.
+     */
+    @Value("${aws.endpoint:}")
+    private String endpoint;
+
+    private StaticCredentialsProvider credentials() {
+        return StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(accessKeyId, secretAccessKey));
+    }
+
+    private boolean hasEndpoint() {
+        return endpoint != null && !endpoint.isBlank();
+    }
+
     @Bean
     public S3Client s3Client() {
-        return S3Client.builder()
+        var builder = S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
-                .build();
+                .credentialsProvider(credentials());
+        if (hasEndpoint()) {
+            builder.endpointOverride(URI.create(endpoint)).forcePathStyle(true);
+        }
+        return builder.build();
     }
 
     @Bean
     public SqsClient sqsClient() {
-        return SqsClient.builder()
+        var builder = SqsClient.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
-                .build();
+                .credentialsProvider(credentials());
+        if (hasEndpoint()) {
+            builder.endpointOverride(URI.create(endpoint));
+        }
+        return builder.build();
     }
 
     @Bean
-    public software.amazon.awssdk.services.cloudwatch.CloudWatchClient cloudWatchClient() {
-        return software.amazon.awssdk.services.cloudwatch.CloudWatchClient.builder()
+    public CloudWatchClient cloudWatchClient() {
+        var builder = CloudWatchClient.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
-                .build();
+                .credentialsProvider(credentials());
+        if (hasEndpoint()) {
+            builder.endpointOverride(URI.create(endpoint));
+        }
+        return builder.build();
     }
 }

@@ -1,6 +1,7 @@
 package com.reconflow;
 
 import com.reconflow.entity.UploadedFile;
+import com.reconflow.entity.status.UploadedFileStatus;
 import com.reconflow.repository.UploadedFileRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-public class UploadE2ETest {
+public class UploadE2ETest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -50,6 +52,7 @@ public class UploadE2ETest {
     private String queueUrl;
 
     private UUID uploadedFileId;
+    private UUID ledgerPrerequisiteFileId;
     private String s3KeyToDelete;
 
     @Autowired
@@ -65,6 +68,9 @@ public class UploadE2ETest {
     void tearDown() {
         if (uploadedFileId != null) {
             uploadedFileRepository.deleteById(uploadedFileId);
+        }
+        if (ledgerPrerequisiteFileId != null) {
+            uploadedFileRepository.deleteById(ledgerPrerequisiteFileId);
         }
         if (s3KeyToDelete != null) {
             s3Client.deleteObject(DeleteObjectRequest.builder()
@@ -94,6 +100,20 @@ public class UploadE2ETest {
         String authCookie = getAuthCookie();
         headers.add(HttpHeaders.COOKIE, authCookie);
 
+        // A GATEWAY file only reconciles after a LEDGER file for the same settlement
+        // date has reached COMPLETED. Seeding that prerequisite makes this a real
+        // end-to-end test of the happy path rather than the dependency-deferral path.
+        UploadedFile ledgerPrerequisite = uploadedFileRepository.save(UploadedFile.builder()
+                .fileName("e2e-ledger-prerequisite.csv")
+                .s3Key("DIRECT_DB_PREREQUISITE")
+                .fileChecksum("e2e-ledger-" + UUID.randomUUID())
+                .sourceType("LEDGER")
+                .gateway("PHONEPE")
+                .settlementDate(LocalDate.parse("2026-09-28"))
+                .status(UploadedFileStatus.COMPLETED)
+                .build());
+        ledgerPrerequisiteFileId = ledgerPrerequisite.getId();
+
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         String testContent = "PhonePeReferenceId,MerchantReferenceId,Amount,SettlementDate\nTXN-001,merch-1,500.00,2026-09-28\n" + System.currentTimeMillis();
         
@@ -121,7 +141,7 @@ public class UploadE2ETest {
         // 3. Verify Database
         UploadedFile dbRecord = uploadedFileRepository.findById(uploadedFileId).orElseThrow();
         assertThat(dbRecord.getGateway()).isEqualTo("PHONEPE");
-        assertThat(dbRecord.getStatus()).isEqualTo("QUEUED");
+        assertThat(dbRecord.getStatus()).isEqualTo(com.reconflow.entity.status.UploadedFileStatus.QUEUED);
         
         s3KeyToDelete = dbRecord.getS3Key();
 
@@ -132,19 +152,26 @@ public class UploadE2ETest {
                 .build());
         assertThat(headObject.contentLength()).isEqualTo(testContent.getBytes().length);
 
-        // 5. Verify the listener picked it up (status changes from QUEUED)
-        boolean processed = false;
+        // 5. Verify the listener runs the gateway job and reaches COMPLETED
+        UploadedFileStatus finalStatus = null;
         for (int i = 0; i < 15; i++) {
             sqsJobListenerService.pollMainQueue(); // Manually poll SQS because scheduling is disabled
-            
+
             UploadedFile f = uploadedFileRepository.findById(uploadedFileId).orElseThrow();
-            if ("PROCESSING".equals(f.getStatus()) || "COMPLETED".equals(f.getStatus()) || "FAILED".equals(f.getStatus()) || "PENDING_DEPENDENCY".equals(f.getStatus())) {
-                processed = true;
+            finalStatus = f.getStatus();
+            if (finalStatus == UploadedFileStatus.COMPLETED || finalStatus == UploadedFileStatus.FAILED) {
                 break;
             }
-            try { Thread.sleep(1000); } catch (InterruptedException e) {}
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
-        
-        assertThat(processed).as("File should be picked up by the listener and status changed from QUEUED").isTrue();
+
+        assertThat(finalStatus)
+                .as("GATEWAY file should reconcile to COMPLETED once the LEDGER prerequisite exists")
+                .isEqualTo(UploadedFileStatus.COMPLETED);
     }
 }

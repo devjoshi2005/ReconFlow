@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class SecurityIntegrationTest {
+class SecurityIntegrationTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;

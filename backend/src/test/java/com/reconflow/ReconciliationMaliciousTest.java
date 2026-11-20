@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-public class ReconciliationMaliciousTest {
+public class ReconciliationMaliciousTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -62,7 +62,7 @@ public class ReconciliationMaliciousTest {
     @Autowired
     private S3Client s3Client;
 
-    private String bucketName = "reconflow-uploads-test";
+    private String bucketName = com.reconflow.support.TestInfra.BUCKET;
     private List<String> s3KeysToDelete = new ArrayList<>();
 
     @BeforeEach
@@ -110,7 +110,7 @@ public class ReconciliationMaliciousTest {
             dependencySweeperTask.sweep();
             
             long reconciledCount = ledgerRepo.findAll().stream()
-                .filter(l -> "RECONCILED".equals(l.getStatus()) || "EXCEPTION".equals(l.getStatus()))
+                .filter(l -> l.getStatus() == com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED)
                 .count();
                 
             if (reconciledCount > 0) {

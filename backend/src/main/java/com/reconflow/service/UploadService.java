@@ -52,6 +52,14 @@ public class UploadService {
 
     private final org.springframework.data.redis.core.script.DefaultRedisScript<List> rateLimitScript;
 
+    /**
+     * How long an in-flight upload keeps its idempotency lock. Large ledger files can
+     * take much longer than 30s to parse and batch-insert, so a short TTL would let a
+     * concurrent duplicate slip past the lock.
+     */
+    @Value("${reconflow.upload.idempotency-ttl-seconds:300}")
+    private long idempotencyTtlSeconds = 300;
+
     @Transactional
     public UploadedFile processUpload(MultipartFile file, String sourceType, String gateway, String bankName, java.time.LocalDate settlementDate, String minAmount, String maxAmount) throws Exception {
         // Rate Limiting (Capacity: 100, Refill: 0.5 per sec)
@@ -129,11 +137,12 @@ public class UploadService {
 
         // Idempotency check with Redis (Lock for 30s to prevent double-clicks)
         String idempotencyKey = "upload:idempotency:" + checksum;
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(30));
+        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(idempotencyTtlSeconds));
         
         if (Boolean.FALSE.equals(isNew)) {
             throw new IllegalArgumentException("Request is already processing. Please wait.");
         }
+        releaseIdempotencyKeyOnRollback(idempotencyKey);
 
         if (uploadedFileRepository.existsByFileChecksum(checksum)) {
             // Cleanup redis if it was already in DB
@@ -164,7 +173,7 @@ public class UploadService {
                 .gateway(gateway)
                 .bankName(bankName)
                 .settlementDate(settlementDate)
-                .status("QUEUED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.QUEUED)
                 .build();
         
         uploadedFile = uploadedFileRepository.save(uploadedFile);
@@ -214,11 +223,12 @@ public class UploadService {
 
         String checksum = calculateChecksum(file);
         String idempotencyKey = "upload:idempotency:" + checksum;
-        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(30));
+        Boolean isNew = redisTemplate.opsForValue().setIfAbsent(idempotencyKey, "processing", Duration.ofSeconds(idempotencyTtlSeconds));
         
         if (Boolean.FALSE.equals(isNew)) {
             throw new IllegalArgumentException("File is already processing or uploaded.");
         }
+        releaseIdempotencyKeyOnRollback(idempotencyKey);
 
         if (uploadedFileRepository.existsByFileChecksum(checksum)) {
             redisTemplate.delete(idempotencyKey);
@@ -271,8 +281,8 @@ public class UploadService {
                         .amount(new java.math.BigDecimal(amountStr))
                         .currency(currencyStr)
                         .gateway(gatewayStr)
-                        .status("PENDING")
-                        .transactionDate(java.time.ZonedDateTime.parse(dateStr + "T00:00:00Z")) // Basic parsing
+                        .status(com.reconflow.entity.status.LedgerTransactionStatus.PENDING)
+                        .transactionDate(parseTransactionDate(dateStr))
                         .build());
                         
                 // Stream optimization: flush batch to DB to prevent OutOfMemory on huge files
@@ -307,13 +317,39 @@ public class UploadService {
                 .sourceType("LEDGER")
                 .gateway(gateway)
                 .settlementDate(settlementDate)
-                .status("COMPLETED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.COMPLETED)
                 .build();
         
         uploadedFile = uploadedFileRepository.save(uploadedFile);
         
         // Pass rowCount in rawData or transient if needed, but we'll return it in the controller.
         return uploadedFile;
+    }
+
+    /**
+     * Successful uploads intentionally keep the idempotency key for its TTL (the DB
+     * checksum is the permanent guard). If the transaction rolls back, however, the
+     * key must be released so the client can retry immediately instead of waiting out
+     * the whole TTL.
+     */
+    private void releaseIdempotencyKeyOnRollback(String idempotencyKey) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == org.springframework.transaction.support.TransactionSynchronization.STATUS_COMMITTED) {
+                            return;
+                        }
+                        try {
+                            redisTemplate.delete(idempotencyKey);
+                        } catch (Exception e) {
+                            log.warn("Failed to release idempotency key after rollback", e);
+                        }
+                    }
+                });
     }
 
     private String calculateChecksum(MultipartFile file) throws NoSuchAlgorithmException, IOException {
@@ -347,6 +383,32 @@ public class UploadService {
         String counterpartSource = "GATEWAY".equalsIgnoreCase(sourceType) ? "BANK" : "GATEWAY";
         return uploadedFileRepository.existsBySourceTypeAndSettlementDate(counterpartSource, settlementDate);
     }
+    /**
+     * Parses the many date shapes found in real ledger exports: plain dates,
+     * ISO-8601 zoned/offset timestamps, and local datetimes without a zone.
+     */
+    private static java.time.ZonedDateTime parseTransactionDate(String raw) {
+        String value = raw.trim();
+        try {
+            if (value.length() == 10) {
+                return java.time.LocalDate.parse(value).atStartOfDay(java.time.ZoneOffset.UTC);
+            }
+            try {
+                return java.time.ZonedDateTime.parse(value);
+            } catch (java.time.format.DateTimeParseException ignored) {
+                // try the next shape
+            }
+            try {
+                return java.time.OffsetDateTime.parse(value).toZonedDateTime();
+            } catch (java.time.format.DateTimeParseException ignored) {
+                // try the next shape
+            }
+            return java.time.LocalDateTime.parse(value).atZone(java.time.ZoneOffset.UTC);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new IllegalArgumentException("Unparseable transaction_date: '" + raw + "'", e);
+        }
+    }
+
     private void flushBatch(List<com.reconflow.entity.LedgerTransaction> chunk) {
         List<String> orderIds = chunk.stream().map(com.reconflow.entity.LedgerTransaction::getInternalOrderId).toList();
         List<String> existingIds = ledgerTransactionRepository.findByInternalOrderIdIn(orderIds)
@@ -369,7 +431,7 @@ public class UploadService {
                 ps.setBigDecimal(4, tx.getAmount());
                 ps.setString(5, tx.getCurrency());
                 ps.setString(6, tx.getGateway());
-                ps.setString(7, tx.getStatus());
+                ps.setString(7, tx.getStatus().name());
                 ps.setObject(8, java.sql.Timestamp.from(tx.getTransactionDate().toInstant()));
             }
 

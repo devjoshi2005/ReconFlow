@@ -13,7 +13,7 @@ import software.amazon.awssdk.services.sqs.model.ListQueuesResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
-public class ConnectionTest {
+public class ConnectionTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private EntityManager entityManager;

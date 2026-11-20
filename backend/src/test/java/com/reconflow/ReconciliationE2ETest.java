@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-public class ReconciliationE2ETest {
+public class ReconciliationE2ETest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -92,10 +92,10 @@ public class ReconciliationE2ETest {
                 .sourceType("LEDGER")
                 .gateway("PHONEPE")
                 .settlementDate(java.time.LocalDate.parse("2026-09-28"))
-                .status("COMPLETED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.COMPLETED)
                 .build();
         fileRepo.save(dummyLedgerFile);
-        
+
         UploadedFile dummyLedgerFileRzp = UploadedFile.builder()
                 .fileName("dummy-ledger-rzp.csv")
                 .s3Key("DIRECT_DB_UPLOAD")
@@ -103,10 +103,10 @@ public class ReconciliationE2ETest {
                 .sourceType("LEDGER")
                 .gateway("RAZORPAY")
                 .settlementDate(java.time.LocalDate.parse("2026-09-28"))
-                .status("COMPLETED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.COMPLETED)
                 .build();
         fileRepo.save(dummyLedgerFileRzp);
-        
+
         UploadedFile dummyLedgerFilePayu = UploadedFile.builder()
                 .fileName("dummy-ledger-payu.csv")
                 .s3Key("DIRECT_DB_UPLOAD")
@@ -114,7 +114,7 @@ public class ReconciliationE2ETest {
                 .sourceType("LEDGER")
                 .gateway("PAYU")
                 .settlementDate(java.time.LocalDate.parse("2026-09-28"))
-                .status("COMPLETED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.COMPLETED)
                 .build();
         fileRepo.save(dummyLedgerFilePayu);
     }
@@ -207,7 +207,7 @@ public class ReconciliationE2ETest {
             dependencySweeperTask.sweep();
             
             long reconciledCount = ledgerRepo.findAll().stream()
-                .filter(l -> "RECONCILED".equals(l.getStatus()))
+                .filter(l -> l.getStatus() == com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED)
                 .count();
                 
             if (reconciledCount == 5) {
@@ -220,7 +220,7 @@ public class ReconciliationE2ETest {
         List<LedgerTransaction> ledgers = ledgerRepo.findAll();
         assertThat(ledgers).hasSize(5);
         for (LedgerTransaction l : ledgers) {
-            assertThat(l.getStatus()).isEqualTo("RECONCILED");
+            assertThat(l.getStatus()).isEqualTo(com.reconflow.entity.status.LedgerTransactionStatus.RECONCILED);
         }
 
         assertThat(exceptionRepo.count()).isEqualTo(0);

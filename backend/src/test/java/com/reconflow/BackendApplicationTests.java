@@ -5,7 +5,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-class BackendApplicationTests {
+class BackendApplicationTests extends com.reconflow.support.IntegrationTestSupport {
 
 	@Test
 	void contextLoads() {

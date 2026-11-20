@@ -4,9 +4,13 @@ import com.opencsv.bean.CsvToBean;
 import com.opencsv.bean.CsvToBeanBuilder;
 import com.reconflow.dto.BankStatementRecord;
 import com.reconflow.dto.GatewaySettlementRecord;
+import com.reconflow.entity.ExceptionQueue;
+import com.reconflow.entity.GatewaySettlement;
 import com.reconflow.entity.UploadedFile;
-import com.reconflow.repository.UploadedFileRepository;
+import com.reconflow.entity.status.ExceptionStatus;
 import com.reconflow.repository.ExceptionQueueRepository;
+import com.reconflow.repository.GatewaySettlementRepository;
+import com.reconflow.repository.UploadedFileRepository;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +27,11 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -115,17 +123,22 @@ public class CsvInMemoryLoader implements StepExecutionListener {
                                 log.warn("Duplicate Gateway ID found in file: {}", record.getGatewayTransactionId());
                                 
                                 UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
-                                com.reconflow.entity.ExceptionQueue duplicateException = com.reconflow.entity.ExceptionQueue.builder()
+                                UUID matchId = UUID.nameUUIDFromBytes(
+                                        (runId + "|DUPLICATE_SETTLEMENT|" + record.getGatewayTransactionId())
+                                                .getBytes(StandardCharsets.UTF_8));
+                                ExceptionQueue duplicateException = ExceptionQueue.builder()
                                         .reconciliationRunId(runId)
-                                        .matchId(UUID.randomUUID())
+                                        .matchId(matchId)
                                         .matchType("A")
                                         .exceptionType("DUPLICATE_SETTLEMENT")
                                         .discrepancyAmount(record.getAmount())
                                         .currency("INR")
-                                        .status("OPEN")
+                                        .status(ExceptionStatus.OPEN)
                                         .gateway(record.getGateway())
                                         .build();
-                                exceptionQueueRepository.save(duplicateException);
+                                if (isNew(duplicateException)) {
+                                    exceptionQueueRepository.save(duplicateException);
+                                }
                             }
                             gatewayRecords.put(record.getGatewayTransactionId(), record);
                         }
@@ -205,52 +218,80 @@ public class CsvInMemoryLoader implements StepExecutionListener {
     @Override
     @org.springframework.batch.core.annotation.AfterStep
     public ExitStatus afterStep(StepExecution stepExecution) {
-        log.info("=== @AfterStep CALLED. Map remaining: {} ===", gatewayRecords.size());
-        if ("GATEWAY".equalsIgnoreCase(currentFile.getSourceType()) && !gatewayRecords.isEmpty()) {
-            log.warn("Found {} Gateway settlements with no matching Ledger transaction (MISSING_IN_LEDGER).", gatewayRecords.size());
-            UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
-            
-            List<com.reconflow.entity.ExceptionQueue> exceptions = new java.util.ArrayList<>();
-            List<com.reconflow.entity.GatewaySettlement> settlements = new java.util.ArrayList<>();
-            
-            for (GatewaySettlementRecord record : gatewayRecords.values()) {
-                UUID matchId = UUID.randomUUID();
-                com.reconflow.entity.GatewaySettlement settlement = com.reconflow.entity.GatewaySettlement.builder()
-                    .id(matchId)
-                    .uploadedFileId(currentFile.getId())
-                    .gateway(record.getGateway())
-                    .gatewayTransactionId(record.getGatewayTransactionId())
-                    .orderId(record.getOrderId())
-                    .settlementBatchId(record.getSettlementId())
-                    .grossAmount(record.getAmount())
-                    .feeAmount(record.getFee() != null ? record.getFee() : java.math.BigDecimal.ZERO)
-                    .taxAmount(record.getTax() != null ? record.getTax() : java.math.BigDecimal.ZERO)
-                    .netAmount(record.getAmount()
-                            .subtract(record.getFee() != null ? record.getFee() : java.math.BigDecimal.ZERO)
-                            .subtract(record.getTax() != null ? record.getTax() : java.math.BigDecimal.ZERO))
-                    .bankTransferRef(record.getBankTransferRef())
-                    .settlementDate(currentFile.getSettlementDate() != null ? currentFile.getSettlementDate() : record.getTransactionDate().toLocalDate())
-                    .build();
-                
-                settlements.add(settlement);
-                
-                com.reconflow.entity.ExceptionQueue exception = com.reconflow.entity.ExceptionQueue.builder()
-                        .reconciliationRunId(runId)
-                        .matchId(matchId)
-                        .matchType("A")
-                        .exceptionType("MISSING_IN_LEDGER")
-                        .discrepancyAmount(record.getAmount())
-                        .currency("INR")
-                        .status("OPEN")
-                        .gateway(record.getGateway())
-                        .build();
-                exceptions.add(exception);
-            }
-            
-            gatewaySettlementRepository.saveAll(settlements);
-            exceptionQueueRepository.saveAll(exceptions);
+        if (!"GATEWAY".equalsIgnoreCase(currentFile.getSourceType()) || gatewayRecords.isEmpty()) {
+            return null;
         }
-        
+
+        UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
+        List<GatewaySettlementRecord> unmatchedRecords = List.copyOf(gatewayRecords.values());
+        List<String> transactionIds = unmatchedRecords.stream()
+                .map(GatewaySettlementRecord::getGatewayTransactionId)
+                .toList();
+
+        // Existing and newly saved settlements share one lookup, so retries always use
+        // the same persisted settlement id as the exception match id.
+        Map<String, GatewaySettlement> settlementsByTransaction = new HashMap<>();
+        gatewaySettlementRepository
+                .findByUploadedFileIdAndGatewayTransactionIdIn(currentFile.getId(), transactionIds)
+                .forEach(settlement -> settlementsByTransaction.put(settlement.getGatewayTransactionId(), settlement));
+
+        List<GatewaySettlement> newSettlements = unmatchedRecords.stream()
+                .filter(record -> !settlementsByTransaction.containsKey(record.getGatewayTransactionId()))
+                .map(this::toSettlement)
+                .toList();
+        if (!newSettlements.isEmpty()) {
+            gatewaySettlementRepository.saveAll(newSettlements)
+                    .forEach(settlement -> settlementsByTransaction.put(settlement.getGatewayTransactionId(), settlement));
+            log.info("Saved {} unmatched gateway settlements.", newSettlements.size());
+        }
+
+        List<ExceptionQueue> newExceptions = unmatchedRecords.stream()
+                .map(record -> missingInLedgerException(
+                        runId, settlementsByTransaction.get(record.getGatewayTransactionId())))
+                .filter(this::isNew)
+                .toList();
+        if (!newExceptions.isEmpty()) {
+            exceptionQueueRepository.saveAll(newExceptions);
+            log.warn("Generated {} MISSING_IN_LEDGER exceptions.", newExceptions.size());
+        }
         return null;
+    }
+
+    private GatewaySettlement toSettlement(GatewaySettlementRecord record) {
+        BigDecimal fee = record.getFee() != null ? record.getFee() : BigDecimal.ZERO;
+        BigDecimal tax = record.getTax() != null ? record.getTax() : BigDecimal.ZERO;
+        return GatewaySettlement.builder()
+                .uploadedFileId(currentFile.getId())
+                .gateway(record.getGateway())
+                .gatewayTransactionId(record.getGatewayTransactionId())
+                .orderId(record.getOrderId())
+                .settlementBatchId(record.getSettlementId())
+                .grossAmount(record.getAmount())
+                .feeAmount(fee)
+                .taxAmount(tax)
+                .netAmount(record.getAmount().subtract(fee).subtract(tax))
+                .bankTransferRef(record.getBankTransferRef())
+                .settlementDate(currentFile.getSettlementDate() != null
+                        ? currentFile.getSettlementDate()
+                        : record.getTransactionDate().toLocalDate())
+                .build();
+    }
+
+    private ExceptionQueue missingInLedgerException(UUID runId, GatewaySettlement settlement) {
+        return ExceptionQueue.builder()
+                .reconciliationRunId(runId)
+                .matchId(settlement.getId())
+                .matchType("A")
+                .exceptionType("MISSING_IN_LEDGER")
+                .discrepancyAmount(settlement.getGrossAmount())
+                .currency("INR")
+                .status(ExceptionStatus.OPEN)
+                .gateway(settlement.getGateway())
+                .build();
+    }
+
+    private boolean isNew(ExceptionQueue exception) {
+        return !exceptionQueueRepository.existsByReconciliationRunIdAndMatchIdAndExceptionType(
+                exception.getReconciliationRunId(), exception.getMatchId(), exception.getExceptionType());
     }
 }

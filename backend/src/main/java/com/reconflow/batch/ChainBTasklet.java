@@ -4,21 +4,30 @@ import com.reconflow.dto.BankStatementRecord;
 import com.reconflow.entity.ChainBMatch;
 import com.reconflow.entity.ExceptionQueue;
 import com.reconflow.entity.GatewaySettlement;
+import com.reconflow.entity.status.ExceptionStatus;
 import com.reconflow.repository.ChainBMatchRepository;
 import com.reconflow.repository.ExceptionQueueRepository;
 import com.reconflow.repository.GatewaySettlementRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.*;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
@@ -38,128 +47,149 @@ public class ChainBTasklet implements Tasklet {
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) {
         UUID runId = runIdStr != null ? UUID.fromString(runIdStr) : UUID.randomUUID();
-        
-        // The loader has the Bank Statements indexed by UTR
         Map<String, BankStatementRecord> bankRecords = csvInMemoryLoader.getBankRecords();
-        log.info("Starting Chain B Tasklet. {} Bank Records loaded.", bankRecords.size());
+        LocalDate settlementDate = csvInMemoryLoader.getCurrentFile().getSettlementDate();
+        List<GatewaySettlement> allSettlements = gatewaySettlementRepository.findBySettlementDate(settlementDate);
+        Set<UUID> alreadyMatchedIds = findAlreadyMatchedIds(runId, allSettlements);
 
-        // We fetch all GatewaySettlements that belong to this gateway and have a UTR (bankTransferRef) but are not yet matched in Chain B.
-        // For simplicity in this mock, we group them all. Realistically we'd only query chainBMatched = false.
-        java.time.LocalDate currentDate = csvInMemoryLoader.getCurrentFile().getSettlementDate();
-        List<GatewaySettlement> allSettlements = gatewaySettlementRepository.findBySettlementDate(currentDate);
-        
-        Map<String, List<GatewaySettlement>> groupedByUtr = allSettlements.stream()
-                .filter(gs -> gs.getBankTransferRef() != null && !gs.getBankTransferRef().isEmpty())
+        Map<String, List<GatewaySettlement>> settlementsByUtr = allSettlements.stream()
+                .filter(settlement -> settlement.getBankTransferRef() != null
+                        && !settlement.getBankTransferRef().isEmpty())
                 .collect(Collectors.groupingBy(GatewaySettlement::getBankTransferRef));
 
-        List<ChainBMatch> matchesToSave = new ArrayList<>();
-        List<ExceptionQueue> exceptionsToSave = new ArrayList<>();
+        List<ChainBMatch> matches = new ArrayList<>();
+        List<ExceptionQueue> exceptions = new ArrayList<>();
+        Set<String> matchedUtrs = new HashSet<>();
 
-        // The bank records are loaded from the CSV.
-        List<BankStatementRecord> allBankRecords = new ArrayList<>(bankRecords.values());
-        Set<String> matchedGatewayUtrs = new HashSet<>();
+        log.info("Starting Chain B with {} bank records and {} settlements ({} already matched).",
+                bankRecords.size(), allSettlements.size(), alreadyMatchedIds.size());
 
-        for (BankStatementRecord bankRecord : allBankRecords) {
+        for (BankStatementRecord bankRecord : bankRecords.values()) {
             String narration = bankRecord.getNarration() != null ? bankRecord.getNarration() : "";
             boolean matchedAny = false;
 
-            for (Map.Entry<String, List<GatewaySettlement>> entry : groupedByUtr.entrySet()) {
-                String knownUtr = entry.getKey();
-                
-                // PRODUCTION APPROACH: The UTR from the gateway CSV appears IN the bank narration
-                if (narration.contains(knownUtr)) {
-                    matchedAny = true;
-                    matchedGatewayUtrs.add(knownUtr);
-                    
-                    List<GatewaySettlement> settlements = entry.getValue();
-                    BigDecimal sumNetAmount = settlements.stream()
-                            .map(GatewaySettlement::getNetAmount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                    if (sumNetAmount.compareTo(bankRecord.getCreditAmount()) != 0) {
-                        BigDecimal discrepancy = sumNetAmount.subtract(bankRecord.getCreditAmount()).abs();
-                        ExceptionQueue exception = ExceptionQueue.builder()
-                                .reconciliationRunId(runId)
-                                .matchId(settlements.get(0).getId())
-                                .matchType("B")
-                                .exceptionType("NET_AMOUNT_MISMATCH")
-                                .discrepancyAmount(discrepancy)
-                                .currency("INR")
-                                .status("OPEN")
-                                .gateway(settlements.get(0).getGateway())
-                                .build();
-                        exceptionsToSave.add(exception);
-                    } else {
-                        ChainBMatch match = ChainBMatch.builder()
-                                .reconciliationRunId(runId)
-                                .gatewaySettlementId(settlements.get(0).getId())
-                                .bankStatementId(UUID.randomUUID())
-                                .matchStatus("MATCHED")
-                                .build();
-                        matchesToSave.add(match);
-                    }
-                    break; // Found the UTR for this bank row, stop checking other UTRs
+            for (Map.Entry<String, List<GatewaySettlement>> entry : settlementsByUtr.entrySet()) {
+                String utr = entry.getKey();
+                if (!narration.contains(utr)) {
+                    continue;
                 }
+
+                matchedAny = true;
+                matchedUtrs.add(utr);
+                List<GatewaySettlement> pending = pendingSettlements(entry.getValue(), alreadyMatchedIds);
+                if (pending.isEmpty()) {
+                    break;
+                }
+
+                BigDecimal netAmount = totalNetAmount(pending);
+                if (netAmount.compareTo(bankRecord.getCreditAmount()) != 0) {
+                    BigDecimal discrepancy = netAmount.subtract(bankRecord.getCreditAmount()).abs();
+                    exceptions.add(exception(runId, pending.get(0), "NET_AMOUNT_MISMATCH", discrepancy));
+                } else {
+                    matches.add(ChainBMatch.builder()
+                            .reconciliationRunId(runId)
+                            .gatewaySettlementId(pending.get(0).getId())
+                            .bankStatementId(UUID.randomUUID())
+                            .matchStatus("MATCHED")
+                            .build());
+                }
+                break;
             }
 
             if (!matchedAny) {
-                String extractedGateway = "UNKNOWN";
-                String upperNarration = narration.toUpperCase();
-                if (upperNarration.contains("RAZORPAY") || upperNarration.contains("RZP")) {
-                    extractedGateway = "RAZORPAY";
-                } else if (upperNarration.contains("PHONEPE") || upperNarration.contains("PHPE")) {
-                    extractedGateway = "PHONEPE";
-                } else if (upperNarration.contains("PAYU")) {
-                    extractedGateway = "PAYU";
-                }
-                
-                // No known UTR found in this narration -> MISSING_IN_GATEWAY
-                ExceptionQueue exception = ExceptionQueue.builder()
-                        .reconciliationRunId(runId)
-                        .matchId(UUID.randomUUID())
-                        .matchType("B")
-                        .exceptionType("MISSING_IN_GATEWAY")
-                        .discrepancyAmount(bankRecord.getCreditAmount())
-                        .currency("INR")
-                        .status("OPEN")
-                        .gateway(extractedGateway)
-                        .build();
-                exceptionsToSave.add(exception);
+                exceptions.add(missingInGatewayException(runId, bankRecord));
             }
         }
 
-        // Known UTRs that were never found in any bank row -> MISSING_IN_BANK
-        for (Map.Entry<String, List<GatewaySettlement>> entry : groupedByUtr.entrySet()) {
-            if (!matchedGatewayUtrs.contains(entry.getKey())) {
-                List<GatewaySettlement> settlements = entry.getValue();
-                BigDecimal sumNetAmount = settlements.stream()
-                        .map(GatewaySettlement::getNetAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                        
-                ExceptionQueue exception = ExceptionQueue.builder()
-                        .reconciliationRunId(runId)
-                        .matchId(settlements.get(0).getId())
-                        .matchType("B")
-                        .exceptionType("MISSING_IN_BANK")
-                        .discrepancyAmount(sumNetAmount)
-                        .currency("INR")
-                        .status("OPEN")
-                        .gateway(settlements.get(0).getGateway())
-                        .build();
-                exceptionsToSave.add(exception);
+        for (Map.Entry<String, List<GatewaySettlement>> entry : settlementsByUtr.entrySet()) {
+            if (matchedUtrs.contains(entry.getKey())) {
+                continue;
+            }
+            List<GatewaySettlement> pending = pendingSettlements(entry.getValue(), alreadyMatchedIds);
+            if (!pending.isEmpty()) {
+                exceptions.add(exception(runId, pending.get(0), "MISSING_IN_BANK", totalNetAmount(pending)));
             }
         }
 
-        if (!matchesToSave.isEmpty()) {
-            chainBMatchRepository.saveAll(matchesToSave);
-            log.info("Saved {} Chain B matches.", matchesToSave.size());
+        if (!matches.isEmpty()) {
+            chainBMatchRepository.saveAll(matches);
+            log.info("Saved {} Chain B matches.", matches.size());
         }
 
-        if (!exceptionsToSave.isEmpty()) {
-            exceptionQueueRepository.saveAll(exceptionsToSave);
-            log.info("Saved {} exceptions during Chain B.", exceptionsToSave.size());
+        List<ExceptionQueue> newExceptions = exceptions.stream()
+                .filter(this::isNew)
+                .toList();
+        if (!newExceptions.isEmpty()) {
+            exceptionQueueRepository.saveAll(newExceptions);
+            log.info("Saved {} Chain B exceptions.", newExceptions.size());
         }
-
         return RepeatStatus.FINISHED;
+    }
+
+    private Set<UUID> findAlreadyMatchedIds(UUID runId, List<GatewaySettlement> settlements) {
+        if (settlements.isEmpty()) {
+            return Set.of();
+        }
+        List<UUID> settlementIds = settlements.stream()
+                .map(GatewaySettlement::getId)
+                .toList();
+        return chainBMatchRepository.findByReconciliationRunIdAndGatewaySettlementIdIn(runId, settlementIds)
+                .stream()
+                .map(ChainBMatch::getGatewaySettlementId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    private List<GatewaySettlement> pendingSettlements(List<GatewaySettlement> settlements, Set<UUID> matchedIds) {
+        return settlements.stream()
+                .filter(settlement -> !matchedIds.contains(settlement.getId()))
+                .toList();
+    }
+
+    private BigDecimal totalNetAmount(List<GatewaySettlement> settlements) {
+        return settlements.stream()
+                .map(GatewaySettlement::getNetAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private ExceptionQueue missingInGatewayException(UUID runId, BankStatementRecord bankRecord) {
+        String narration = bankRecord.getNarration() != null ? bankRecord.getNarration() : "";
+        String upperNarration = narration.toUpperCase();
+        String gateway = "UNKNOWN";
+        if (upperNarration.contains("RAZORPAY") || upperNarration.contains("RZP")) {
+            gateway = "RAZORPAY";
+        } else if (upperNarration.contains("PHONEPE") || upperNarration.contains("PHPE")) {
+            gateway = "PHONEPE";
+        } else if (upperNarration.contains("PAYU")) {
+            gateway = "PAYU";
+        }
+
+        String reference = bankRecord.getUtr() != null ? bankRecord.getUtr() : narration;
+        UUID matchId = UUID.nameUUIDFromBytes((runId + "|" + reference).getBytes(StandardCharsets.UTF_8));
+        return exception(runId, matchId, gateway, "MISSING_IN_GATEWAY", bankRecord.getCreditAmount());
+    }
+
+    private ExceptionQueue exception(UUID runId, GatewaySettlement settlement,
+                                     String exceptionType, BigDecimal discrepancy) {
+        return exception(runId, settlement.getId(), settlement.getGateway(), exceptionType, discrepancy);
+    }
+
+    private ExceptionQueue exception(UUID runId, UUID matchId, String gateway,
+                                     String exceptionType, BigDecimal discrepancy) {
+        return ExceptionQueue.builder()
+                .reconciliationRunId(runId)
+                .matchId(matchId)
+                .matchType("B")
+                .exceptionType(exceptionType)
+                .discrepancyAmount(discrepancy)
+                .currency("INR")
+                .status(ExceptionStatus.OPEN)
+                .gateway(gateway)
+                .build();
+    }
+
+    private boolean isNew(ExceptionQueue exception) {
+        return !exceptionQueueRepository.existsByReconciliationRunIdAndMatchIdAndExceptionType(
+                exception.getReconciliationRunId(), exception.getMatchId(), exception.getExceptionType());
     }
 }

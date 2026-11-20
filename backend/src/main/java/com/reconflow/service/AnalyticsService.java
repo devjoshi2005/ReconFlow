@@ -61,7 +61,10 @@ public class AnalyticsService {
         long totalMatched = ledgerRepo.countMatchedSince(since);
         long openExceptions = exceptionRepo.countOpenExceptions();
         
-        long filesQueued = uploadedFileRepo.countByStatusIn(java.util.List.of("PENDING", "PROCESSING"));
+        long filesQueued = uploadedFileRepo.countByStatusIn(java.util.List.of(
+                com.reconflow.entity.status.UploadedFileStatus.QUEUED,
+                com.reconflow.entity.status.UploadedFileStatus.PROCESSING
+        ));
         java.util.List<com.reconflow.entity.ExceptionQueue> recentExceptions = exceptionRepo.findTop5ByOrderByCreatedAtDesc();
         
         double overallRate = totalProcessed > 0 ? ((double) totalMatched / totalProcessed) * 100 : 0.0;

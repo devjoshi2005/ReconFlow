@@ -32,7 +32,7 @@ public class DependencySweeperTask {
     @Scheduled(fixedDelayString = "${reconflow.sweeper.delay:60000}")
     public void sweep() {
         log.debug("Starting Dependency Sweeper...");
-        List<UploadedFile> pendingFiles = uploadedFileRepository.findByStatus("PENDING_DEPENDENCY");
+        List<UploadedFile> pendingFiles = uploadedFileRepository.findByStatus(com.reconflow.entity.status.UploadedFileStatus.PENDING_DEPENDENCY);
 
         if (pendingFiles.isEmpty()) {
             return;
@@ -45,11 +45,11 @@ public class DependencySweeperTask {
 
             if ("GATEWAY".equalsIgnoreCase(file.getSourceType())) {
                 canProcess = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
-                        "LEDGER", file.getSettlementDate(), "COMPLETED");
+                        "LEDGER", file.getSettlementDate(), com.reconflow.entity.status.UploadedFileStatus.COMPLETED);
             } else if ("BANK".equalsIgnoreCase(file.getSourceType())) {
                 // Bank files don't have a specific gateway, they depend on ANY Gateway file for that date
                 canProcess = uploadedFileRepository.existsBySourceTypeAndSettlementDateAndStatus(
-                        "GATEWAY", file.getSettlementDate(), "COMPLETED");
+                        "GATEWAY", file.getSettlementDate(), com.reconflow.entity.status.UploadedFileStatus.COMPLETED);
             } else if ("LEDGER".equalsIgnoreCase(file.getSourceType())) {
                 // Ledger has no prerequisites, so if it's PENDING_DEPENDENCY something is wrong.
                 canProcess = true; 
@@ -57,7 +57,7 @@ public class DependencySweeperTask {
 
             if (canProcess) {
                 log.info("Dependencies met for file ID {}. Re-queueing for processing.", file.getId());
-                file.setStatus("QUEUED");
+                file.transitionTo(com.reconflow.entity.status.UploadedFileStatus.QUEUED);
                 uploadedFileRepository.save(file);
 
                 String messageBody = String.format("{\"fileId\":\"%s\", \"sourceType\":\"%s\", \"gateway\":\"%s\"}",

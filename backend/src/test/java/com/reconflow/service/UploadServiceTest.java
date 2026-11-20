@@ -79,10 +79,10 @@ class UploadServiceTest {
         
         UploadedFile savedFile = UploadedFile.builder()
                 .id(UUID.randomUUID())
-                .status("QUEUED")
+                .status(com.reconflow.entity.status.UploadedFileStatus.QUEUED)
                 .build();
         when(uploadedFileRepository.save(any(UploadedFile.class))).thenReturn(savedFile);
-        
+
         // Act
         UploadedFile result = uploadService.processUpload(file, "GATEWAY", "RAZORPAY", null, java.time.LocalDate.now(), "0.01", "10000000");
 
@@ -91,7 +91,7 @@ class UploadServiceTest {
 
         // Assert
         assertNotNull(result);
-        assertEquals("QUEUED", result.getStatus());
+        assertEquals(com.reconflow.entity.status.UploadedFileStatus.QUEUED, result.getStatus());
         
         verify(s3Client, times(1)).putObject(any(PutObjectRequest.class), any(software.amazon.awssdk.core.sync.RequestBody.class));
         verify(sqsClient, times(1)).sendMessage(any(SendMessageRequest.class));

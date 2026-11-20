@@ -1,5 +1,6 @@
 package com.reconflow.entity;
 
+import com.reconflow.entity.status.UploadedFileStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -39,8 +40,10 @@ public class UploadedFile {
     @Column(name = "bank_name", length = 50)
     private String bankName;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
-    private String status;
+    @Setter(AccessLevel.NONE)
+    private UploadedFileStatus status;
 
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
@@ -58,4 +61,15 @@ public class UploadedFile {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private ZonedDateTime updatedAt;
+
+    @Version
+    private Integer version;
+
+    public void transitionTo(UploadedFileStatus newStatus) {
+        if (!this.status.canTransitionTo(newStatus)) {
+            throw new IllegalStateException(
+                    "Invalid state transition: " + this.status + " -> " + newStatus);
+        }
+        this.status = newStatus;
+    }
 }

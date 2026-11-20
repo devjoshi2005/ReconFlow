@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 @ActiveProfiles("test")
-public class PerformanceTest {
+public class PerformanceTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private UploadService uploadService;

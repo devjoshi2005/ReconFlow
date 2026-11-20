@@ -31,7 +31,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 @AutoConfigureMockMvc(addFilters = false) // disable security for raw api speed
 @ActiveProfiles("test")
 @WithMockUser(username = "admin", roles = {"ADMIN", "MANAGER", "ANALYST"})
-public class ResumeMetricsTest {
+public class ResumeMetricsTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;

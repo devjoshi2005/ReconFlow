@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {"scheduling.enabled=false"})
 @org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
-public class UploadControllerIntegrationTest {
+public class UploadControllerIntegrationTest extends com.reconflow.support.IntegrationTestSupport {
 
     @Autowired
     private TestRestTemplate restTemplate;
@@ -99,7 +99,7 @@ public class UploadControllerIntegrationTest {
         assertThat(dbRecord).isNotNull();
         assertThat(dbRecord.getGateway()).isEqualTo("RAZORPAY");
         assertThat(dbRecord.getSourceType()).isEqualTo("GATEWAY");
-        assertThat(dbRecord.getStatus()).isEqualTo("QUEUED");
+        assertThat(dbRecord.getStatus()).isEqualTo(com.reconflow.entity.status.UploadedFileStatus.QUEUED);
         assertThat(dbRecord.getS3Key()).contains("uploads/");
     }
 }
